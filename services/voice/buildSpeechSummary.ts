@@ -12,6 +12,11 @@ export type DashboardSpeechData = {
   waterPumpStatus: boolean;
   autoMode: boolean;
   routeState: RouteState;
+  weatherSummary?: {
+    temperature: number;
+    shouldDelayIrrigation: boolean;
+    rainExpected: boolean;
+  };
 };
 
 export type IrrigationSpeechData = {
@@ -21,6 +26,11 @@ export type IrrigationSpeechData = {
   autoMode: boolean;
   pumpWater: boolean;
   recommendOn: boolean;
+  weatherSummary?: {
+    temperature: number;
+    shouldDelayIrrigation: boolean;
+    rainExpected: boolean;
+  };
 };
 
 export type DiseaseSpeechData = {
@@ -117,6 +127,35 @@ function normalizeSpeech(text: string) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+function buildWeatherSentence(
+  lang: Lang,
+  locale: string,
+  weather?: {
+    temperature: number;
+    shouldDelayIrrigation: boolean;
+    rainExpected: boolean;
+  }
+) {
+  if (!weather) return '';
+  const temp = formatLocalizedNumber(weather.temperature, locale, 0);
+
+  if (lang === 'hi') {
+    return weather.rainExpected
+      ? `आज तापमान ${temp} डिग्री है। बारिश की संभावना है। सिंचाई टालें।`
+      : `आज तापमान ${temp} डिग्री है। बारिश की संभावना कम है। आवश्यकता हो तो सिंचाई करें।`;
+  }
+
+  if (lang === 'mr') {
+    return weather.rainExpected
+      ? `आज तापमान ${temp} अंश आहे. पावसाची शक्यता आहे. पाणी देणे पुढे ढकला.`
+      : `आज तापमान ${temp} अंश आहे. पावसाची शक्यता कमी आहे. गरज असेल तर पाणी द्या.`;
+  }
+
+  return weather.rainExpected
+    ? `Current temperature is ${temp} degrees. Rain is expected. Irrigation should be delayed.`
+    : `Current temperature is ${temp} degrees. Rain is not expected soon. Irrigation can continue if needed.`;
+}
+
 function routeToSpeech(route: RouteState, labels: SpeechLabels) {
   if (route === 'WATER') return labels.routeWater;
   if (route === 'PESTICIDE') return labels.routePesticide;
@@ -140,10 +179,11 @@ export function buildIrrigationSpeech(locale: string, data: IrrigationSpeechData
   const pump = boolToText(data.pumpWater, labels);
   const auto = boolToText(data.autoMode, labels);
   const recommendation = data.recommendOn ? labels.pumpOn : labels.pumpOff;
+  const weatherSentence = buildWeatherSentence(lang, lang, data.weatherSummary);
 
   if (lang === 'hi') {
     const text = normalizeSpeech(
-      `${labels.irrigationTitle}. ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.threshold} ${threshold} ${labels.percent} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${labels.autoIrrigation} ${auto} है। ${labels.waterMotor} ${pump} है। ${labels.recommendation} ${recommendation}.`
+      `${labels.irrigationTitle}. ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.threshold} ${threshold} ${labels.percent} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${labels.autoIrrigation} ${auto} है। ${labels.waterMotor} ${pump} है। ${labels.recommendation} ${recommendation}. ${weatherSentence}`
     );
     if (__DEV__) {
       // eslint-disable-next-line no-console
@@ -154,7 +194,7 @@ export function buildIrrigationSpeech(locale: string, data: IrrigationSpeechData
 
   if (lang === 'mr') {
     const text = normalizeSpeech(
-      `${labels.irrigationTitle}. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.threshold} ${threshold} ${labels.percent} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${labels.autoIrrigation} ${auto} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.recommendation} ${recommendation}.`
+      `${labels.irrigationTitle}. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.threshold} ${threshold} ${labels.percent} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${labels.autoIrrigation} ${auto} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.recommendation} ${recommendation}. ${weatherSentence}`
     );
     if (__DEV__) {
       // eslint-disable-next-line no-console
@@ -163,7 +203,7 @@ export function buildIrrigationSpeech(locale: string, data: IrrigationSpeechData
     return text;
   }
 
-  return `${labels.irrigationTitle}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.threshold} is ${threshold} ${labels.percent}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${labels.autoIrrigation} is ${auto}. ${labels.waterMotor} is ${pump}. ${labels.recommendation} ${recommendation}.`;
+  return `${labels.irrigationTitle}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.threshold} is ${threshold} ${labels.percent}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${labels.autoIrrigation} is ${auto}. ${labels.waterMotor} is ${pump}. ${labels.recommendation} ${recommendation}. ${weatherSentence}`;
 }
 
 export function buildDiseaseSpeech(locale: string, data: DiseaseSpeechData): string {
@@ -231,8 +271,9 @@ function buildEnglishDashboardSpeech(locale: string, data: DashboardSpeechData):
   const pump = boolToText(data.waterPumpStatus, labels);
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
+  const weatherSentence = buildWeatherSentence('en', locale, data.weatherSummary);
 
-  return `${labels.dashboardTitle}. ${labels.temperature} is ${temp} ${labels.degreeC}. ${labels.humidity} is ${humidity} ${labels.percent}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.waterMotor} is ${pump}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${route}. ${labels.autoIrrigation} is ${auto}.`;
+  return `${labels.dashboardTitle}. ${labels.temperature} is ${temp} ${labels.degreeC}. ${labels.humidity} is ${humidity} ${labels.percent}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.waterMotor} is ${pump}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${route}. ${labels.autoIrrigation} is ${auto}. ${weatherSentence}`;
 }
 
 function buildHindiDashboardSpeech(locale: string, data: DashboardSpeechData): string {
@@ -244,9 +285,10 @@ function buildHindiDashboardSpeech(locale: string, data: DashboardSpeechData): s
   const pump = boolToText(data.waterPumpStatus, labels);
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
+  const weatherSentence = buildWeatherSentence('hi', locale, data.weatherSummary);
 
   const text = normalizeSpeech(
-    `खेत की वर्तमान स्थिति यह है। ${labels.temperature} ${temp} ${labels.degreeC} है। ${labels.humidity} ${humidity} ${labels.percent} है। ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.waterMotor} ${pump} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${route}। ${labels.autoIrrigation} ${auto} है।`
+    `खेत की वर्तमान स्थिति यह है। ${labels.temperature} ${temp} ${labels.degreeC} है। ${labels.humidity} ${humidity} ${labels.percent} है। ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.waterMotor} ${pump} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${route}। ${labels.autoIrrigation} ${auto} है। ${weatherSentence}`
   );
   if (__DEV__) {
     // eslint-disable-next-line no-console
@@ -264,9 +306,10 @@ function buildMarathiDashboardSpeech(locale: string, data: DashboardSpeechData):
   const pump = boolToText(data.waterPumpStatus, labels);
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
+  const weatherSentence = buildWeatherSentence('mr', locale, data.weatherSummary);
 
   const text = normalizeSpeech(
-    `शेताची सद्यस्थिती अशी आहे. ${labels.temperature} ${temp} ${labels.degreeC} आहे. ${labels.humidity} ${humidity} ${labels.percent} आहे. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${route}। ${labels.autoIrrigation} ${auto} आहे.`
+    `शेताची सद्यस्थिती अशी आहे. ${labels.temperature} ${temp} ${labels.degreeC} आहे. ${labels.humidity} ${humidity} ${labels.percent} आहे. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${route}। ${labels.autoIrrigation} ${auto} आहे. ${weatherSentence}`
   );
   if (__DEV__) {
     // eslint-disable-next-line no-console

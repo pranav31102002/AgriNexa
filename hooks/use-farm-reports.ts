@@ -16,6 +16,7 @@ import {
   WeeklyReport,
 } from '@/services/report/report-calculator';
 import { getDailyInsight, getMonthlyInsight, getWeeklyRecommendation } from '@/utils/report-insights';
+import { useAppStore } from '@/store/use-app-store';
 
 export type FarmReportsPayload = {
   daily: DailyReport;
@@ -25,8 +26,9 @@ export type FarmReportsPayload = {
 };
 
 export function useFarmReports() {
+  const language = useAppStore((state) => state.language);
   return useQuery({
-    queryKey: ['farm-reports'],
+    queryKey: ['farm-reports', language],
     queryFn: async (): Promise<FarmReportsPayload> => {
       try {
         const [dailyReport, weeklyReport, monthlyReport] = await Promise.all([

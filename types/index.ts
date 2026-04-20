@@ -15,6 +15,7 @@ export interface UserProfile {
   farmName: string;
   location: string;
   role?: UserRole;
+  theme?: ThemeMode;
 }
 
 export interface SensorCurrent {

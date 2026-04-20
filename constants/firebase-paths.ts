@@ -13,6 +13,8 @@ export const firebasePaths = {
   deviceStatusCam: 'SmartKisanSathi/deviceStatus/esp32cam',
   aiDisease: 'SmartKisanSathi/aiDisease',
   analyticsToday: 'SmartKisanSathi/analytics/today',
+  weatherCurrent: 'SmartKisanSathi/weather/current',
+  weatherForecast: 'SmartKisanSathi/weather/forecast',
   reportsDaily: 'SmartKisanSathi/reports/daily',
   reportsWeekly: 'SmartKisanSathi/reports/weekly',
   reportsMonthly: 'SmartKisanSathi/reports/monthly',

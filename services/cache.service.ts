@@ -10,6 +10,7 @@ export const cacheKeys = {
   esp32LastTimestamp: 'cache:esp32:last-image-timestamp',
   historyWriteBlocked: 'cache:history:writes-blocked',
   reports: 'cache:reports:last',
+  weather: 'cache:weather:last',
 } as const;
 
 export async function setCache<T>(key: string, value: T): Promise<void> {

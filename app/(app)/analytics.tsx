@@ -3,6 +3,7 @@ import { ScreenContainer } from '@/components/ui/screen-container';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useDeviceStatus } from '@/hooks/use-device-status';
 import { useFarmAnalytics } from '@/hooks/useFarmAnalytics';
+import { useWeather } from '@/hooks/useWeather';
 import { speakAnalyticsSummary, stopSpeech } from '@/services/speech.service';
 import { AnalyticsSummary } from '@/types';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -83,6 +84,7 @@ export default function AnalyticsScreen() {
   const muted = { color: isDark ? '#CBD5E1' : '#64748B' };
   const deviceStatus = useDeviceStatus();
   const { data } = useFarmAnalytics();
+  const { data: weather } = useWeather();
   const [speaking, setSpeaking] = useState(false);
 
   const summary = data ?? emptySummary;
@@ -316,6 +318,11 @@ export default function AnalyticsScreen() {
             water: kpi.waterRouteCycles,
             spray: kpi.sprayRouteCycles,
           })}
+        </Text>
+        <Text className="mt-2 text-xs text-emerald-600">
+          {weather?.guidance.shouldDelayIrrigation
+            ? t('analyticsRainDelayInsight')
+            : t('analyticsRoutineIrrigationInsight')}
         </Text>
       </GlassCard>
     </ScreenContainer>

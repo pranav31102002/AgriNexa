@@ -6,6 +6,7 @@ import { firebasePaths } from '@/constants/firebase-paths';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useDeviceStatus } from '@/hooks/use-device-status';
 import { useFarmRealtime } from '@/hooks/use-farm-realtime';
+import { useWeather } from '@/hooks/useWeather';
 import { triggerAlertIfNeeded } from '@/services/alerts.service';
 import { logUserAction } from '@/services/audit-log.service';
 import { cacheKeys, getCache, setCache } from '@/services/cache.service';
@@ -24,6 +25,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
+import { buildSprayApprovalWeatherText, formatLocalizedDateTime, translateDiseaseName, translateRainRisk } from '@/utils/farmer-localization';
+import { rainRiskTone, sprayAdviceTone } from '@/utils/weatherMapper';
 
 type ScanSource = 'upload' | 'camera' | 'esp32';
 
@@ -39,8 +42,10 @@ export default function DiseaseAIScreen() {
   const setDiseaseValidation = useAppStore((state) => state.setDiseaseValidation);
   const cachedDiseasePrediction = useAppStore((state) => state.cachedDiseasePrediction);
   const setCachedDiseasePrediction = useAppStore((state) => state.setCachedDiseasePrediction);
+  const language = useAppStore((state) => state.language);
   const { data: deviceStatus } = useDeviceStatus();
   const { data: farmRealtime } = useFarmRealtime();
+  const { data: weather } = useWeather();
   const isDark = theme.scheme === 'dark';
   const txt = { color: isDark ? '#F8FAFC' : '#1E293B' };
   const muted = { color: isDark ? '#CBD5E1' : '#64748B' };
@@ -101,8 +106,8 @@ export default function DiseaseAIScreen() {
     setError(null);
     setValidationState({
       code,
-      title: 'Wrong object detected in photo',
-      subtitle: 'Please upload or capture a clear crop leaf image for disease analysis.',
+      title: t('invalidLeafTitle'),
+      subtitle: t('invalidLeafSubtitle'),
     });
     setDiseaseValidation('invalid', message);
 
@@ -212,8 +217,8 @@ export default function DiseaseAIScreen() {
         return;
       }
 
-      setDiseaseValidation('error', 'Prediction failed');
-      setError(`Upload/Prediction failed: ${String(e)}`);
+      setDiseaseValidation('error', t('predictionFailed'));
+      setError(t('uploadPredictionFailed', { message: String(e) }));
     },
   });
 
@@ -221,7 +226,7 @@ export default function DiseaseAIScreen() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        setError('Gallery permission is required.');
+        setError(t('galleryPermissionRequired'));
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -234,7 +239,7 @@ export default function DiseaseAIScreen() {
         if (uri) classifyMutation.mutate({ uri, source: 'upload' });
       }
     } catch (e) {
-      setError(`Unable to open gallery: ${String(e)}`);
+      setError(t('unableToOpenGallery', { message: String(e) }));
     }
   };
 
@@ -242,7 +247,7 @@ export default function DiseaseAIScreen() {
     try {
       const cam = await ImagePicker.requestCameraPermissionsAsync();
       if (!cam.granted) {
-        setError('Camera permission is required.');
+        setError(t('cameraPermissionRequired'));
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -266,9 +271,9 @@ export default function DiseaseAIScreen() {
     } catch (e) {
       const message = String(e);
       if (message.includes('keep awake')) {
-        setError('Camera session failed on this device. Please retry once or use Upload Photo.');
+        setError(t('cameraSessionFailed'));
       } else {
-        setError(`Unable to open camera: ${message}`);
+        setError(t('unableToOpenCamera', { message }));
       }
     }
   };
@@ -277,7 +282,7 @@ export default function DiseaseAIScreen() {
     try {
       const lastScan = (await getCache<number>(cacheKeys.esp32LastTimestamp)) ?? 0;
       if (lastScan && Date.now() - lastScan < 6000) {
-        setError('Please wait a few seconds before scanning again.');
+        setError(t('waitBeforeScan'));
         return;
       }
       esp32AbortRef.current?.abort();
@@ -297,7 +302,7 @@ export default function DiseaseAIScreen() {
 
       await setCache(cacheKeys.esp32LastTimestamp, Date.now());
       if (isBase64Large(payload.base64)) {
-        setError('Camera response delayed. Please ensure ESP32-CAM is online and try scanning again.');
+        setError(t('esp32ResponseDelayed'));
         await setRealtime(`${firebasePaths.pesticide}/scanRequest`, false);
         setWaitingEsp32(false);
         setEsp32Stage(null);
@@ -314,7 +319,7 @@ export default function DiseaseAIScreen() {
       setEsp32Stage(t('esp32Predicting'));
       classifyMutation.mutate({ uri: preview, source: 'esp32', base64: payload.base64 });
     } catch (e) {
-      setError(String(e) || 'Camera response delayed. Please ensure ESP32-CAM is online and try scanning again.');
+      setError(String(e) || t('esp32ResponseDelayed'));
       await setRealtime(`${firebasePaths.pesticide}/scanRequest`, false);
       setWaitingEsp32(false);
       setEsp32Stage(null);
@@ -326,6 +331,7 @@ export default function DiseaseAIScreen() {
   const routeState = farmRealtime?.routeState ?? 'IDLE';
   const flushActive = Boolean(farmRealtime?.flushActive);
   const awaitingCameraSubmit = Boolean(pendingCameraUri && !prediction);
+  const severeWeatherRisk = Boolean(weather && (!weather.guidance.spraySafe || weather.guidance.rainRisk === 'HIGH'));
 
   const sprayMutation = useMutation({
     mutationFn: async (approve: boolean) => {
@@ -362,7 +368,7 @@ export default function DiseaseAIScreen() {
       });
 
       if (approve) {
-        setFeedback({ title: 'Spray Approved', subtitle: 'Pump active for 10 seconds', variant: 'success' });
+        setFeedback({ title: t('sprayApprovedTitle'), subtitle: t('sprayApprovedSubtitle'), variant: 'success' });
         sprayAutoStopRef.current = setTimeout(async () => {
           try {
             await setRealtime(`${firebasePaths.pesticide}/approval`, {
@@ -375,20 +381,20 @@ export default function DiseaseAIScreen() {
               lastSprayDurationSec: 10,
               timestamp: Math.floor(Date.now() / 1000),
             });
-            setFeedback({ title: 'Spray Completed', subtitle: 'Pesticide pump safely turned off', variant: 'info' });
+            setFeedback({ title: t('sprayCompletedTitle'), subtitle: t('sprayCompletedSubtitle'), variant: 'info' });
           } catch (e) {
-            setError(`Unable to auto-stop spray: ${String(e)}`);
+            setError(t('unableToAutoStopSpray', { message: String(e) }));
           } finally {
             sprayAutoStopRef.current = null;
           }
         }, 10000);
       } else {
-        setFeedback({ title: 'Spray Stopped', subtitle: 'Farmer stopped the pesticide pump', variant: 'warning' });
+        setFeedback({ title: t('sprayStoppedTitle'), subtitle: t('sprayStoppedSubtitle'), variant: 'warning' });
       }
     },
   });
 
-  const canApprove = Boolean(prediction && prediction.spray && confidence > 85 && !sprayMutation.isPending);
+  const canApprove = Boolean(prediction && prediction.spray && confidence > 85 && !sprayMutation.isPending && !severeWeatherRisk);
 
   return (
     <ScreenContainer backgroundColor={theme.background}>
@@ -463,14 +469,14 @@ export default function DiseaseAIScreen() {
           {awaitingCameraSubmit ? (
             <View className="mt-4 gap-3">
               <Text className="text-sm text-slate-600" style={muted}>
-                Cropped image ready. Review the preview, then submit this cropped image for prediction.
+                {t('croppedImageReady')}
               </Text>
               <View className="flex-row gap-3">
                 <Pressable
                   className="flex-1 items-center rounded-2xl bg-slate-700 px-4 py-3"
                   disabled={classifyMutation.isPending}
                   onPress={onCapturePhoto}>
-                  <Text className="font-black text-white">Recapture</Text>
+                  <Text className="font-black text-white">{t('recapture')}</Text>
                 </Pressable>
                 <Pressable
                   className={`flex-1 items-center rounded-2xl px-4 py-3 ${classifyMutation.isPending ? 'bg-slate-400' : 'bg-emerald-600'}`}
@@ -479,7 +485,7 @@ export default function DiseaseAIScreen() {
                     if (!pendingCameraUri) return;
                     classifyMutation.mutate({ uri: pendingCameraUri, source: 'camera' });
                   }}>
-                  <Text className="font-black text-white">Upload Cropped Image</Text>
+                  <Text className="font-black text-white">{t('uploadCroppedImage')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -493,8 +499,8 @@ export default function DiseaseAIScreen() {
             {t('predictionPesticide')}
           </Text>
           <View className="mt-2 flex-row flex-wrap gap-2">
-            <StatusBadge text={prediction.disease} tone={prediction.disease === 'Healthy' ? 'ok' : 'warn'} />
-            <StatusBadge text={`Confidence ${prediction.confidence.toFixed(1)}%`} tone={confidence < 70 ? 'error' : 'ok'} />
+            <StatusBadge text={translateDiseaseName(prediction.disease, t)} tone={prediction.disease === 'Healthy' ? 'ok' : 'warn'} />
+            <StatusBadge text={t('confidenceLabel', { value: prediction.confidence.toFixed(1) })} tone={confidence < 70 ? 'error' : 'ok'} />
           </View>
 
           <View className="mt-3">
@@ -509,7 +515,7 @@ export default function DiseaseAIScreen() {
             {t('predictedClass')}
           </Text>
           <Text className={`text-sm ${prediction.disease === 'Healthy' ? 'text-emerald-600 font-semibold' : 'text-slate-600'}`} style={prediction.disease === 'Healthy' ? undefined : muted}>
-            {prediction.disease}
+            {translateDiseaseName(prediction.disease, t)}
           </Text>
 
           <Text className="mt-3 text-sm font-semibold text-slate-700" style={txt}>
@@ -562,7 +568,7 @@ export default function DiseaseAIScreen() {
           </Text>
 
           <Text className="mt-2 text-xs text-slate-500" style={muted}>
-            {t('scanTimestamp')}: {prediction.timestamp}
+            {t('scanTimestamp')}: {formatLocalizedDateTime(prediction.timestamp, language)}
           </Text>
         </GlassCard>
       ) : null}
@@ -587,6 +593,17 @@ export default function DiseaseAIScreen() {
         <Text className="mb-3 text-base font-bold text-slate-800" style={txt}>
           {t('sprayApproval')}
         </Text>
+        {weather ? (
+          <View className="mb-3 gap-2">
+            <Text className="text-sm text-slate-600" style={muted}>
+              {buildSprayApprovalWeatherText(weather, t)}
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              <StatusBadge text={t('weatherRainChip', { risk: translateRainRisk(weather.guidance.rainRisk, t) })} tone={rainRiskTone(weather.guidance.rainRisk)} />
+              <StatusBadge text={weather.guidance.spraySafe ? t('spraySafeNow') : t('sprayBlockedNow')} tone={sprayAdviceTone(weather.guidance.spraySafe)} />
+            </View>
+          </View>
+        ) : null}
         <View className="flex-row gap-3">
           <Pressable
             className={`flex-1 items-center rounded-2xl px-4 py-3 ${canApprove ? 'bg-emerald-600' : 'bg-slate-400'}`}

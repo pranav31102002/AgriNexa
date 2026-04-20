@@ -4,6 +4,8 @@ export type FarmStatus = {
   farmerName: string;
   farmName: string;
   location: string;
+  farmerRole: string;
+  farmerLoginOnline: boolean;
   avgSoil: number;
   temperature: number;
   humidity: number;

@@ -1,4 +1,4 @@
-import { AdminMetricCard, AdminSectionHeader, DetailRow, GlassCard, InfoTile, InlineStatBadges, MiniTrend, StatusBadge, adminPalette } from '@/components/admin/panel';
+import { AdminMetricCard, AdminSectionHeader, DetailRow, GlassCard, InfoTile, InlineStatBadges, MiniTrend, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
 import { useAdminAnalytics } from '@/hooks/useAdminAnalytics';
 import { useAdminDashboard } from '@/hooks/useAdminDashboard';
@@ -12,6 +12,7 @@ export default function AdminDashboardScreen() {
   const { data } = useAdminDashboard();
   const { data: analytics } = useAdminAnalytics();
   const language = useAppStore((state) => state.language);
+  const { palette, criticalBorder } = useAdminTheme();
 
   const global = data?.global;
   const summary = data?.summary;
@@ -48,31 +49,31 @@ export default function AdminDashboardScreen() {
       <GlassCard>
         <View className="flex-row items-start justify-between gap-3">
           <View className="flex-1">
-            <Text className="text-lg font-black" style={{ color: adminPalette.text }}>
+            <Text className="text-lg font-black" style={{ color: palette.text }}>
               Irrigation Activity
             </Text>
-            <Text className="mt-1 text-sm" style={{ color: adminPalette.muted }}>
+            <Text className="mt-1 text-sm" style={{ color: palette.muted }}>
               Compact weekly activity trend for admin decisions.
             </Text>
           </View>
           <Pressable
             className="h-11 w-11 items-center justify-center rounded-[18px]"
-            style={{ backgroundColor: adminPalette.cardElevated }}
+            style={{ backgroundColor: palette.cardElevated }}
             onPress={() => {
               void speakCustomSummary(summaryText);
             }}>
-            <MaterialCommunityIcons name="volume-high" size={20} color={adminPalette.text} />
+            <MaterialCommunityIcons name="volume-high" size={20} color={palette.text} />
           </Pressable>
         </View>
-        <MiniTrend points={analytics?.irrigation ?? []} color={adminPalette.info} />
+        <MiniTrend points={analytics?.irrigation ?? []} color={palette.info} />
         <View className="mt-4 flex-row gap-3">
-          <InfoTile label="Route Efficiency" value={`${Math.round(global?.avgRouteEfficiency ?? 0)}%`} tone={adminPalette.accent} />
-          <InfoTile label="Total Route Cycles" value={`${global?.totalRouteCycles ?? 0}`} tone={adminPalette.text} />
+          <InfoTile label="Route Efficiency" value={`${Math.round(global?.avgRouteEfficiency ?? 0)}%`} tone={palette.accent} />
+          <InfoTile label="Total Route Cycles" value={`${global?.totalRouteCycles ?? 0}`} tone={palette.text} />
         </View>
       </GlassCard>
 
       <GlassCard>
-        <Text className="text-lg font-black" style={{ color: adminPalette.text }}>
+        <Text className="text-lg font-black" style={{ color: palette.text }}>
           Quick Actions
         </Text>
         <View className="mt-4 flex-row flex-wrap gap-3">
@@ -85,12 +86,12 @@ export default function AdminDashboardScreen() {
             <Pressable
               key={item.href}
               className="min-w-[47%] flex-1 rounded-[24px] border p-4"
-              style={{ borderColor: adminPalette.border, backgroundColor: adminPalette.bgSecondary }}
+              style={{ borderColor: palette.border, backgroundColor: palette.bgSecondary }}
               onPress={() => router.push(item.href as never)}>
               <View className="h-10 w-10 items-center justify-center rounded-2xl" style={{ backgroundColor: `${item.tone}20` }}>
                 <MaterialCommunityIcons name={item.icon as never} size={20} color={item.tone} />
               </View>
-              <Text className="mt-3 text-sm font-black" style={{ color: adminPalette.text }}>
+              <Text className="mt-3 text-sm font-black" style={{ color: palette.text }}>
                 {item.label}
               </Text>
             </Pressable>
@@ -102,17 +103,17 @@ export default function AdminDashboardScreen() {
         <AdminSectionHeader title="Recent Alerts" subtitle="Critical issues stay surfaced for quick response." actionLabel="View All" onPress={() => router.push('/(app)/admin/alerts' as never)} />
         <View className="mt-4 gap-3">
           {recentAlerts.map((alert) => (
-            <View key={alert.id} className="rounded-[22px] border p-4" style={{ borderColor: alert.severity === 'critical' ? '#5C2228' : adminPalette.border, backgroundColor: adminPalette.bgSecondary }}>
+            <View key={alert.id} className="rounded-[22px] border p-4" style={{ borderColor: alert.severity === 'critical' ? criticalBorder : palette.border, backgroundColor: palette.bgSecondary }}>
               <View className="flex-row items-center justify-between">
-                <Text className="text-sm font-black" style={{ color: adminPalette.text }}>
+                <Text className="text-sm font-black" style={{ color: palette.text }}>
                   {alert.type}
                 </Text>
                 <StatusBadge text={alert.severity.toUpperCase()} tone={alert.severity === 'critical' ? 'error' : alert.severity === 'warning' ? 'warn' : 'info'} />
               </View>
-              <Text className="mt-2 text-sm" style={{ color: adminPalette.muted }}>
+              <Text className="mt-2 text-sm" style={{ color: palette.muted }}>
                 {alert.farmName} | {alert.farmerName}
               </Text>
-              <Text className="mt-1 text-xs" style={{ color: adminPalette.muted }}>
+              <Text className="mt-1 text-xs" style={{ color: palette.muted }}>
                 {alert.reason}
               </Text>
             </View>
@@ -124,13 +125,13 @@ export default function AdminDashboardScreen() {
         <AdminSectionHeader title="Live Farm Preview" subtitle="Operational highlights from the latest farm index." actionLabel="Open Live" onPress={() => router.push('/(app)/admin/live-farms' as never)} />
         <View className="mt-4 gap-3">
           {liveFarms.map((farm) => (
-            <View key={farm.farmId} className="rounded-[22px] border p-4" style={{ borderColor: adminPalette.border, backgroundColor: adminPalette.bgSecondary }}>
+            <View key={farm.farmId} className="rounded-[22px] border p-4" style={{ borderColor: palette.border, backgroundColor: palette.bgSecondary }}>
               <View className="flex-row items-center justify-between">
                 <View className="flex-1 pr-3">
-                  <Text className="text-sm font-black" style={{ color: adminPalette.text }}>
+                  <Text className="text-sm font-black" style={{ color: palette.text }}>
                     {farm.farmName}
                   </Text>
-                  <Text className="mt-1 text-xs" style={{ color: adminPalette.muted }}>
+                  <Text className="mt-1 text-xs" style={{ color: palette.muted }}>
                     {farm.farmerName}
                   </Text>
                 </View>
@@ -150,13 +151,13 @@ export default function AdminDashboardScreen() {
         <AdminSectionHeader title="Priority Farms" subtitle="Farm-level attention list generated from alerts and device health." actionLabel="Analytics" onPress={() => router.push('/(app)/admin/analytics' as never)} />
         <View className="mt-4 gap-3">
           {priorityFarms.map((farm) => (
-            <View key={farm.farmId} className="rounded-[22px] border p-4" style={{ borderColor: adminPalette.border, backgroundColor: adminPalette.bgSecondary }}>
+            <View key={farm.farmId} className="rounded-[22px] border p-4" style={{ borderColor: palette.border, backgroundColor: palette.bgSecondary }}>
               <View className="flex-row items-start justify-between gap-3">
                 <View className="flex-1">
-                  <Text className="text-sm font-black" style={{ color: adminPalette.text }}>
+                  <Text className="text-sm font-black" style={{ color: palette.text }}>
                     {farm.farmName}
                   </Text>
-                  <Text className="mt-1 text-xs" style={{ color: adminPalette.muted }}>
+                  <Text className="mt-1 text-xs" style={{ color: palette.muted }}>
                     {farm.farmerName}
                   </Text>
                 </View>

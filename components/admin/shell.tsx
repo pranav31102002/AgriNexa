@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { adminPalette } from '@/components/admin/panel';
+import { useAdminTheme } from '@/components/admin/panel';
 import { useAppStore } from '@/store/use-app-store';
 
 type NavItem = {
@@ -34,6 +34,8 @@ export function AdminMobileShell({
 }) {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { palette, headerGradient, headerBadgeBg, headerBadgeText, profilePanelBg, navBackground, navActiveBackground, navActiveIcon, navActiveText } =
+    useAdminTheme();
   const profile = useAppStore((state) => state.profile);
   const initials = (profile.name || 'Admin')
     .split(' ')
@@ -43,52 +45,52 @@ export function AdminMobileShell({
     .toUpperCase();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: adminPalette.bg }} edges={['top', 'left', 'right']}>
-      <View style={{ flex: 1, backgroundColor: adminPalette.bg }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }} edges={['top', 'left', 'right']}>
+      <View style={{ flex: 1, backgroundColor: palette.bg }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 8,
-            paddingBottom: Math.max(insets.bottom + 104, 120),
+            paddingBottom: Math.max(insets.bottom + 98, 118),
           }}>
           <LinearGradient
-            colors={['#163A29', '#0C1913', '#07110D']}
+            colors={headerGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={{
               borderRadius: 32,
               borderWidth: 1,
-              borderColor: adminPalette.border,
+              borderColor: palette.border,
               padding: 18,
               marginBottom: 18,
             }}>
             <View className="flex-row items-start justify-between gap-3">
               <View className="flex-1">
-                <View className="self-start rounded-full px-3 py-1.5" style={{ backgroundColor: '#123423' }}>
-                  <Text className="text-[11px] font-black tracking-[1px]" style={{ color: '#7BE0A4' }}>
+                <View className="self-start rounded-full px-3 py-1.5" style={{ backgroundColor: headerBadgeBg }}>
+                  <Text className="text-[11px] font-black tracking-[1px]" style={{ color: headerBadgeText }}>
                     AGRINEXA ADMIN
                   </Text>
                 </View>
-                <Text className="mt-4 text-[28px] font-black leading-8" style={{ color: adminPalette.text }}>
+                <Text className="mt-4 text-[28px] font-black leading-8" style={{ color: palette.text }}>
                   {title}
                 </Text>
-                <Text className="mt-2 text-sm leading-5" style={{ color: adminPalette.muted }}>
+                <Text className="mt-2 text-sm leading-5" style={{ color: palette.muted }}>
                   {subtitle}
                 </Text>
               </View>
 
               <Pressable
                 className="rounded-[22px] border p-3"
-                style={{ borderColor: adminPalette.border, backgroundColor: 'rgba(255,255,255,0.06)' }}
+                style={{ borderColor: palette.border, backgroundColor: profilePanelBg }}
                 onPress={() => router.push('/(app)/admin/account' as never)}>
                 <View className="h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: '#1B9C5A' }}>
                   <Text className="text-sm font-black text-white">{initials || 'A'}</Text>
                 </View>
-                <Text className="mt-2 text-xs font-bold" style={{ color: adminPalette.text }}>
+                <Text className="mt-2 text-xs font-bold" style={{ color: palette.text }}>
                   {profile.name || 'Admin User'}
                 </Text>
-                <Text className="text-[11px]" style={{ color: adminPalette.muted }}>
+                <Text className="text-[11px]" style={{ color: palette.muted }}>
                   Profile
                 </Text>
               </Pressable>
@@ -101,15 +103,16 @@ export function AdminMobileShell({
         <View
           style={{
             position: 'absolute',
-            left: 12,
-            right: 12,
-            bottom: Math.max(insets.bottom, 8),
-            borderRadius: 30,
-            borderWidth: 1,
-            borderColor: adminPalette.border,
-            backgroundColor: 'rgba(10, 23, 18, 0.96)',
-            paddingHorizontal: 8,
-            paddingVertical: 8,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderTopWidth: 1,
+            borderColor: palette.border,
+            backgroundColor: navBackground,
+            paddingLeft: 8,
+            paddingRight: 8,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 10),
           }}>
           <View className="flex-row items-center justify-between">
             {navItems.map((item) => {
@@ -117,11 +120,11 @@ export function AdminMobileShell({
               return (
                 <Pressable
                   key={item.href}
-                  className="flex-1 items-center rounded-2xl px-1 py-2"
-                  style={{ backgroundColor: active ? '#163A29' : 'transparent' }}
+                  className="flex-1 items-center rounded-xl px-1 py-2"
+                  style={{ backgroundColor: active ? navActiveBackground : 'transparent' }}
                   onPress={() => router.replace(item.href as never)}>
-                  <MaterialCommunityIcons name={item.icon} size={20} color={active ? '#7BE0A4' : adminPalette.muted} />
-                  <Text className="mt-1 text-[10px] font-bold" style={{ color: active ? '#EFFAF4' : adminPalette.muted }}>
+                  <MaterialCommunityIcons name={item.icon} size={20} color={active ? navActiveIcon : palette.muted} />
+                  <Text className="mt-1 text-[10px] font-bold" style={{ color: active ? navActiveText : palette.muted }}>
                     {item.label}
                   </Text>
                 </Pressable>

@@ -50,11 +50,35 @@ function toMs(value: unknown) {
   return ts ? ts * 1000 : 0;
 }
 
+function isRecentTimestamp(value: unknown, windowMs = 300_000) {
+  const ms = toMs(value);
+  return ms > 0 && Date.now() - ms <= windowMs;
+}
+
 function isOnline(status?: FirebaseDeviceStatus | null) {
   if (!status) return false;
   if (status.online) return true;
-  const lastSeenMs = toMs(status.lastSeen);
-  return lastSeenMs > 0 && Date.now() - lastSeenMs <= 300_000;
+  return isRecentTimestamp(status.lastSeen);
+}
+
+function isFarmerLoginOnline(profile?: Record<string, unknown> | null) {
+  if (!profile) return false;
+  if (toBool(profile.sessionOnline)) return true;
+  return isRecentTimestamp(profile.sessionLastSeen);
+}
+
+function inferFarmOnline(
+  raw: Record<string, unknown>,
+  sensorsCurrent: FirebaseSensorsCurrent | null,
+  mainStatus: FirebaseDeviceStatus | null,
+  camStatus: FirebaseDeviceStatus | null
+) {
+  const mainOnline = isOnline(mainStatus);
+  const camOnline = isOnline(camStatus);
+  const farmLastSyncOnline = isRecentTimestamp(raw?.lastSync);
+  const sensorOnline = isRecentTimestamp(sensorsCurrent?.timestamp);
+  const statusFlagOnline = toBool(raw?.online);
+  return statusFlagOnline || farmLastSyncOnline || sensorOnline || mainOnline || camOnline;
 }
 
 function buildAlert(id: string, raw: Record<string, unknown>): AdminAlert {
@@ -112,14 +136,15 @@ function buildAlertIndexes(alerts: AdminAlert[]) {
 function buildFarm(
   farmId: string,
   raw: Record<string, unknown>,
+  profile: Record<string, unknown> | null,
   sensorsCurrent: FirebaseSensorsCurrent | null,
   mainStatus: FirebaseDeviceStatus | null,
   camStatus: FirebaseDeviceStatus | null,
   latestAlert?: AdminAlert
 ): FarmStatus {
-  const mainOnline = isOnline(mainStatus);
   const camOnline = isOnline(camStatus);
-  const farmOnline = toBool(raw?.online) || mainOnline;
+  const farmOnline = inferFarmOnline(raw, sensorsCurrent, mainStatus, camStatus);
+  const farmerRole = normalizeUserRole(profile?.role);
 
   return {
     farmId,
@@ -127,6 +152,8 @@ function buildFarm(
     farmerName: toText(raw?.farmerName, 'Unknown Farmer'),
     farmName: toText(raw?.farmName, 'Unnamed Farm'),
     location: toText(raw?.location, 'Unknown Location'),
+    farmerRole,
+    farmerLoginOnline: isFarmerLoginOnline(profile),
     avgSoil: toNumber(raw?.avgSoil ?? sensorsCurrent?.avgSoil),
     temperature: toNumber(raw?.temperature ?? sensorsCurrent?.temperature),
     humidity: toNumber(raw?.humidity ?? sensorsCurrent?.humidity),
@@ -244,16 +271,20 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
   const alerts = buildAlerts(alertsRaw);
   const { latestByFarm, countByFarm, unresolvedByFarm } = buildAlertIndexes(alerts);
 
-  const farms = Object.entries(farmsIndexRaw ?? {}).map(([farmId, value]) =>
-    buildFarm(
+  const farms = Object.entries(farmsIndexRaw ?? {}).map(([farmId, value]) => {
+    const farmerUid = toText(value?.uid ?? value?.farmerUid);
+    const profile = (profilesRaw?.[farmerUid] ?? null) as Record<string, unknown> | null;
+
+    return buildFarm(
       farmId,
       value ?? {},
+      profile,
       sensorsCurrent,
       mainStatus,
       camStatus,
       latestByFarm.get(farmId) ?? latestByFarm.get(toText(value?.farmName))
-    )
-  );
+    );
+  });
 
   const farmsByUser = new Map<string, FarmStatus[]>();
   farms.forEach((farm) => {
@@ -267,6 +298,7 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     const linkedFarms = farmsByUser.get(uid) ?? [];
     const role = normalizeUserRole(profile?.role);
     const active = toBool(profile?.active, true);
+    const loginOnline = isFarmerLoginOnline(profile);
     const primaryFarm = linkedFarms[0];
     const linkedDeviceCount = linkedFarms.reduce((count, farm) => count + 1 + (farm.cameraAvailable ? 1 : 0), 0);
 
@@ -278,8 +310,11 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       farmName: toText(profile?.farmName || primaryFarm?.farmName),
       location: toText(profile?.location || primaryFarm?.location),
       role,
+      theme: toText(profile?.theme, 'system'),
       active,
       lastLogin: toTimestamp(profile?.lastLogin),
+      loginOnline,
+      loginLastSeen: toTimestamp(profile?.sessionLastSeen),
       routeEfficiency: toNumber(globalRaw?.avgRouteEfficiency ?? dailyReport?.routeEfficiencyPercent ?? weeklyReport?.routeEfficiencyPercent),
       deviceOnline: linkedFarms.some((farm) => farm.online),
       farmCount: linkedFarms.length || (profile?.farmName ? 1 : 0),
@@ -293,8 +328,12 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
   const totalFarmers = farmerRows.filter((row) => row.role === 'farmer').length;
   const totalViewers = farmerRows.filter((row) => row.role === 'viewer').length;
   const totalAdmins = farmerRows.filter((row) => row.role === 'admin').length;
-  const onlineDevices = farms.filter((farm) => farm.online).length || (isOnline(mainStatus) ? 1 : 0) + (isOnline(camStatus) ? 1 : 0);
-  const offlineDevices = Math.max(totalFarms - onlineDevices, 0);
+  const mainDeviceKnown = Boolean(mainStatus);
+  const camDeviceKnown = Boolean(camStatus) || farms.some((farm) => farm.cameraAvailable);
+  const onlineDevices = [isOnline(mainStatus), isOnline(camStatus)].filter(Boolean).length;
+  const totalKnownDevices = Number(mainDeviceKnown) + Number(camDeviceKnown);
+  const offlineDevices = Math.max(totalKnownDevices - onlineDevices, 0);
+  const farmsOnline = farms.filter((farm) => farm.online).length;
 
   const summary: AdminCommandSummary = {
     totalFarmers,
@@ -311,7 +350,7 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
 
   const global: AdminGlobalAnalytics = {
     activeFarms: toNumber(globalRaw?.activeFarms, totalFarms),
-    farmsOnline: toNumber(globalRaw?.farmsOnline, farms.filter((farm) => farm.online).length),
+    farmsOnline,
     totalAlerts: toNumber(globalRaw?.totalAlerts, activeAlerts),
     totalDiseaseScans: toNumber(globalRaw?.totalDiseaseScans, summary.todayDiseaseScans),
     avgRouteEfficiency: toNumber(
@@ -348,7 +387,7 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     deviceSummary: {
       online: summary.onlineDevices,
       offline: summary.offlineDevices,
-      cameraAvailable: farms.filter((farm) => farm.cameraAvailable).length || (isOnline(camStatus) ? 1 : 0),
+      cameraAvailable: farms.some((farm) => farm.cameraAvailable) || isOnline(camStatus) ? 1 : 0,
     },
     problematicFarms: buildProblematicFarms(farms, unresolvedByFarm),
   };

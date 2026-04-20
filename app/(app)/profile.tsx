@@ -13,6 +13,7 @@ import { cacheKeys, getCache, setCache } from '@/services/cache.service';
 import { getRealtimeOnce } from '@/services/firebase';
 import { useAppStore } from '@/store/use-app-store';
 import { useAuthStore } from '@/store/use-auth-store';
+import { translateRole } from '@/utils/farmer-localization';
 
 type ProfileView = {
   name: string;
@@ -132,12 +133,12 @@ export default function ProfileScreen() {
 
       <GlassCard>
         <View className="gap-3">
-          <InfoRow label="Full Name" value={profile.name} />
-          <InfoRow label="Email" value={profile.email} />
-          <InfoRow label="Role" value={profile.role.toUpperCase()} />
-          <InfoRow label="Phone" value={profile.phone} />
-          <InfoRow label="Farm Name" value={profile.farmName} />
-          <InfoRow label="Village / District" value={profile.villageDistrict} />
+          <InfoRow label={t('profileFullName')} value={profile.name} />
+          <InfoRow label={t('email')} value={profile.email} />
+          <InfoRow label={t('profileRole')} value={translateRole(profile.role, t)} />
+          <InfoRow label={t('phone')} value={profile.phone} />
+          <InfoRow label={t('farmName')} value={profile.farmName} />
+          <InfoRow label={t('profileVillageDistrict')} value={profile.villageDistrict} />
 
           <Pressable className="items-center rounded-2xl bg-slate-700 px-4 py-3" onPress={onLogout}>
             <Text className="text-base font-bold text-white">{t('logout')}</Text>

@@ -1,4 +1,4 @@
-import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, StatusBadge, adminPalette } from '@/components/admin/panel';
+import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
 import { useAlertsCenter } from '@/hooks/useAlertsCenter';
 import { AlertSeverity } from '@/types';
@@ -12,6 +12,7 @@ const severityTone: Record<AlertSeverity, 'error' | 'warn' | 'info'> = {
 };
 
 export default function AdminAlertsScreen() {
+  const { palette, criticalBorder, criticalSurface } = useAdminTheme();
   const { data, acknowledgeAlert, acknowledging } = useAlertsCenter();
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'all' | AlertSeverity>('all');
@@ -51,15 +52,15 @@ export default function AdminAlertsScreen() {
           <View
             className="rounded-[22px] border p-4"
             style={{
-              borderColor: alert.severity === 'critical' && !alert.resolved ? '#5C2228' : adminPalette.border,
-              backgroundColor: alert.severity === 'critical' && !alert.resolved ? '#221114' : adminPalette.bgSecondary,
+              borderColor: alert.severity === 'critical' && !alert.resolved ? criticalBorder : palette.border,
+              backgroundColor: alert.severity === 'critical' && !alert.resolved ? criticalSurface : palette.bgSecondary,
             }}>
             <View className="flex-row items-start justify-between gap-3">
               <View className="flex-1">
-                <Text className="text-base font-black" style={{ color: adminPalette.text }}>
+                <Text className="text-base font-black" style={{ color: palette.text }}>
                   {alert.type}
                 </Text>
-                <Text className="mt-1 text-sm" style={{ color: adminPalette.muted }}>
+                <Text className="mt-1 text-sm" style={{ color: palette.muted }}>
                   {alert.farmName} | {alert.farmerName}
                 </Text>
               </View>
@@ -78,7 +79,7 @@ export default function AdminAlertsScreen() {
             {!alert.resolved ? (
               <Pressable
                 className="mt-4 rounded-full px-4 py-3"
-                style={{ backgroundColor: adminPalette.accent }}
+                style={{ backgroundColor: palette.accent }}
                 disabled={acknowledging}
                 onPress={() => {
                   void acknowledgeAlert(alert.id);

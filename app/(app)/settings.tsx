@@ -94,7 +94,7 @@ export default function SettingsScreen() {
         <Text className="text-sm font-semibold text-slate-700" style={txt}>
           {t('settings')}
         </Text>
-        <Text className="text-xs text-slate-500" style={muted}>Language, theme, controls and notifications.</Text>
+        <Text className="text-xs text-slate-500" style={muted}>{t('settingsSubtitle')}</Text>
       </GlassCard>
 
       <GlassCard>
@@ -109,7 +109,7 @@ export default function SettingsScreen() {
                 setLanguage(lang);
                 void writeControlsPartial({ language: lang.toUpperCase() });
               }}>
-              <Text className={`font-semibold ${language === lang ? 'text-white' : 'text-slate-700'}`}>{lang.toUpperCase()}</Text>
+              <Text className={`font-semibold ${language === lang ? 'text-white' : 'text-slate-700'}`}>{t(`languageLabel${lang.toUpperCase()}`)}</Text>
             </Pressable>
           ))}
         </View>
@@ -127,7 +127,7 @@ export default function SettingsScreen() {
                 setThemeMode(mode);
                 void writeControlsPartial({ theme: mode });
               }}>
-              <Text className={`font-semibold ${themeMode === mode ? 'text-white' : 'text-slate-700'}`}>{mode}</Text>
+              <Text className={`font-semibold ${themeMode === mode ? 'text-white' : 'text-slate-700'}`}>{t(`themeMode${mode[0].toUpperCase()}${mode.slice(1)}`)}</Text>
             </Pressable>
           ))}
         </View>
@@ -149,15 +149,15 @@ export default function SettingsScreen() {
                 backgroundColor: isDark ? '#0f172a' : '#ffffff',
                 color: isDark ? '#e2e8f0' : '#0f172a',
               }}
-              placeholder="Enter moisture threshold (10-90)"
+              placeholder={t('thresholdPlaceholder')}
             />
           )}
         />
         {thresholdForm.formState.errors.moistureThreshold ? (
-          <Text className="mt-1 text-xs text-red-600">Threshold must be between 10 and 90.</Text>
+          <Text className="mt-1 text-xs text-red-600">{t('thresholdError')}</Text>
         ) : null}
         <Pressable className="mt-3 items-center rounded-xl bg-green-700 px-4 py-2" onPress={onSaveThreshold}>
-          <Text className="font-semibold text-white">Save Threshold</Text>
+          <Text className="font-semibold text-white">{t('saveThreshold')}</Text>
         </Pressable>
       </GlassCard>
 
@@ -176,16 +176,16 @@ export default function SettingsScreen() {
       </GlassCard>
 
       <GlassCard>
-        <Text className="mb-2 text-base font-bold text-slate-800" style={txt}>Viva Utilities</Text>
+        <Text className="mb-2 text-base font-bold text-slate-800" style={txt}>{t('settingsUtilities')}</Text>
         <View className="gap-2">
           <Pressable className="items-center rounded-xl bg-teal-700 px-4 py-3" onPress={() => router.push('/(app)/validation-report' as never)}>
-            <Text className="font-semibold text-white">Validation Report</Text>
+            <Text className="font-semibold text-white">{t('validationReport')}</Text>
           </Pressable>
           <Pressable className="items-center rounded-xl bg-cyan-700 px-4 py-3" onPress={() => router.push('/(app)/system-flow' as never)}>
-            <Text className="font-semibold text-white">System Flow</Text>
+            <Text className="font-semibold text-white">{t('systemFlow')}</Text>
           </Pressable>
           <Pressable className="items-center rounded-xl bg-indigo-700 px-4 py-3" onPress={() => router.push('/(app)/demo-cases' as never)}>
-            <Text className="font-semibold text-white">Demo Cases</Text>
+            <Text className="font-semibold text-white">{t('demoCases')}</Text>
           </Pressable>
         </View>
       </GlassCard>

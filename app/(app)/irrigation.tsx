@@ -10,11 +10,14 @@ import { ScreenContainer } from '@/components/ui/screen-container';
 import { firebasePaths } from '@/constants/firebase-paths';
 import { useFarmRealtime } from '@/hooks/use-farm-realtime';
 import { useAppTheme } from '@/hooks/use-app-theme';
+import { useWeather } from '@/hooks/useWeather';
 import { logUserAction } from '@/services/audit-log.service';
 import { getRealtimeOnce, setRealtime } from '@/services/firebase';
 import { logIrrigationHistory } from '@/services/history.service';
 import { speakIrrigationSummary as speakIrrigationSummaryTts, stopSpeech } from '@/services/speech.service';
 import { useAppStore } from '@/store/use-app-store';
+import { buildIrrigationWeatherText, translateRainRisk } from '@/utils/farmer-localization';
+import { irrigationAdviceTone, rainRiskTone } from '@/utils/weatherMapper';
 
 type ControlsJson = {
   autoMode?: boolean;
@@ -33,6 +36,7 @@ export default function IrrigationScreen() {
   const muted = { color: isDark ? '#CBD5E1' : '#64748B' };
   const queryClient = useQueryClient();
   const { data } = useFarmRealtime();
+  const { data: weather } = useWeather();
   const role = useAppStore((state) => state.role);
   const localControl = useAppStore((state) => state.localControl);
   const setLocalControl = useAppStore((state) => state.setLocalControl);
@@ -151,6 +155,13 @@ export default function IrrigationScreen() {
         autoMode: Boolean(autoMode),
         pumpWater: Boolean(pumpWater),
         recommendOn,
+        weatherSummary: weather
+          ? {
+              temperature: Number(weather.current.temperature ?? 0),
+              shouldDelayIrrigation: Boolean(weather.guidance.shouldDelayIrrigation),
+              rainExpected: Boolean(weather.guidance.rainExpectedWithin6h),
+            }
+          : undefined,
       },
       () => setIsSpeaking(false)
     );
@@ -185,8 +196,8 @@ export default function IrrigationScreen() {
       newValue: !pumpWater,
     });
     setFeedback({
-      title: !pumpWater ? 'Manual irrigation started instantly' : 'Manual irrigation stopped',
-      subtitle: !pumpWater ? 'Water line active immediately' : 'Water line stopped',
+      title: !pumpWater ? t('manualIrrigationStarted') : t('manualIrrigationStopped'),
+      subtitle: !pumpWater ? t('waterLineActiveNow') : t('waterLineStopped'),
       variant: !pumpWater ? 'success' : 'warning',
     });
   };
@@ -209,7 +220,7 @@ export default function IrrigationScreen() {
 
       {role === 'viewer' ? (
         <GlassCard>
-          <Text className="text-sm font-semibold text-amber-600">Viewer role: irrigation controls are hidden. You can view live insights only.</Text>
+          <Text className="text-sm font-semibold text-amber-600">{t('viewerIrrigationReadonly')}</Text>
         </GlassCard>
       ) : null}
 
@@ -273,6 +284,20 @@ export default function IrrigationScreen() {
         ) : (
           <Text className="text-sm text-slate-500" style={muted}>{t('routeIdle')}</Text>
         )}
+      </GlassCard>
+
+      <GlassCard>
+        <Text className="mb-2 text-base font-bold text-slate-800" style={txt}>{t('weatherSuggestion')}</Text>
+        <Text className="text-sm text-slate-600" style={muted}>
+          {buildIrrigationWeatherText(weather, avgSoil, threshold, t)}
+        </Text>
+        <View className="mt-3 flex-row flex-wrap gap-2">
+          <StatusBadge text={t('weatherRainChip', { risk: translateRainRisk(weather?.guidance.rainRisk, t) })} tone={rainRiskTone(weather?.guidance.rainRisk ?? 'LOW')} />
+          <StatusBadge
+            text={buildIrrigationWeatherText(weather, avgSoil, threshold, t)}
+            tone={irrigationAdviceTone(Boolean(weather?.guidance.shouldDelayIrrigation))}
+          />
+        </View>
       </GlassCard>
 
 

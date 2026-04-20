@@ -22,8 +22,11 @@ export type AdminFarmerRow = {
   farmName: string;
   location: string;
   role: UserRole;
+  theme: string;
   active: boolean;
   lastLogin: number;
+  loginOnline: boolean;
+  loginLastSeen: number;
   routeEfficiency: number;
   deviceOnline: boolean;
   farmCount: number;

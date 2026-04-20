@@ -1,9 +1,10 @@
-import { AdminMetricCard, AdminSectionHeader, EmptyState, GlassCard, MiniTrend, StatusBadge, adminPalette } from '@/components/admin/panel';
+import { AdminMetricCard, AdminSectionHeader, EmptyState, GlassCard, MiniTrend, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
 import { useAdminAnalytics } from '@/hooks/useAdminAnalytics';
 import { Text, View } from 'react-native';
 
 export default function AdminAnalyticsScreen() {
+  const { palette } = useAdminTheme();
   const { data } = useAdminAnalytics();
   const problematicFarms = data?.problematicFarms ?? [];
 
@@ -19,22 +20,22 @@ export default function AdminAnalyticsScreen() {
       </View>
 
       <GlassCard>
-        <Text className="text-lg font-black" style={{ color: adminPalette.text }}>Active Farms Trend</Text>
+        <Text className="text-lg font-black" style={{ color: palette.text }}>Active Farms Trend</Text>
         <MiniTrend points={data?.activeFarms ?? []} />
       </GlassCard>
 
       <GlassCard>
-        <Text className="text-lg font-black" style={{ color: adminPalette.text }}>Disease Scan Trend</Text>
+        <Text className="text-lg font-black" style={{ color: palette.text }}>Disease Scan Trend</Text>
         <MiniTrend points={data?.diseaseScans ?? []} color="#A78BFA" />
       </GlassCard>
 
       <GlassCard>
-        <Text className="text-lg font-black" style={{ color: adminPalette.text }}>Alert Trend</Text>
+        <Text className="text-lg font-black" style={{ color: palette.text }}>Alert Trend</Text>
         <MiniTrend points={data?.alerts ?? []} color="#F87171" />
       </GlassCard>
 
       <GlassCard>
-        <Text className="text-lg font-black" style={{ color: adminPalette.text }}>Irrigation Trend</Text>
+        <Text className="text-lg font-black" style={{ color: palette.text }}>Irrigation Trend</Text>
         <MiniTrend points={data?.irrigation ?? []} color="#38BDF8" />
       </GlassCard>
 
@@ -42,19 +43,19 @@ export default function AdminAnalyticsScreen() {
         <AdminSectionHeader title="Priority Farm Signals" subtitle="Top farms needing attention based on alerts and telemetry." />
         {!problematicFarms.length ? <EmptyState title="No problematic farms found" subtitle="Current data does not show any urgent farm-level issues." /> : null}
         {problematicFarms.map((farm) => (
-          <View key={farm.farmId} className="mt-4 rounded-[22px] border p-4" style={{ borderColor: adminPalette.border, backgroundColor: adminPalette.bgSecondary }}>
+          <View key={farm.farmId} className="mt-4 rounded-[22px] border p-4" style={{ borderColor: palette.border, backgroundColor: palette.bgSecondary }}>
             <View className="flex-row items-start justify-between gap-3">
               <View className="flex-1">
-                <Text className="text-sm font-black" style={{ color: adminPalette.text }}>
+                <Text className="text-sm font-black" style={{ color: palette.text }}>
                   {farm.farmName}
                 </Text>
-                <Text className="mt-1 text-xs" style={{ color: adminPalette.muted }}>
+                <Text className="mt-1 text-xs" style={{ color: palette.muted }}>
                   {farm.farmerName}
                 </Text>
               </View>
               <StatusBadge text={`SCORE ${farm.score}`} tone={farm.score >= 5 ? 'error' : 'warn'} />
             </View>
-            <Text className="mt-3 text-sm" style={{ color: adminPalette.muted }}>
+            <Text className="mt-3 text-sm" style={{ color: palette.muted }}>
               {farm.issue}
             </Text>
           </View>

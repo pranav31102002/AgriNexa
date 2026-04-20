@@ -67,5 +67,10 @@ export async function sendResetPasswordLink(email: string) {
 
 export async function logout() {
   if (!auth) return;
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    await setRealtime(`${firebasePaths.userProfiles}/${uid}/sessionOnline`, false);
+    await setRealtime(`${firebasePaths.userProfiles}/${uid}/sessionLastSeen`, Math.floor(Date.now() / 1000));
+  }
   await signOut(auth);
 }

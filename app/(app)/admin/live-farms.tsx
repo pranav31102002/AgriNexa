@@ -1,10 +1,11 @@
-import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, InlineStatBadges, StatusBadge, adminPalette } from '@/components/admin/panel';
+import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, InlineStatBadges, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
 import { useVillageFarms } from '@/hooks/useVillageFarms';
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 
 export default function AdminLiveFarmsScreen() {
+  const { palette } = useAdminTheme();
   const { data } = useVillageFarms();
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'online' | 'offline'>('all');
@@ -37,10 +38,10 @@ export default function AdminLiveFarmsScreen() {
         <GlassCard key={farm.farmId}>
           <View className="flex-row items-start justify-between gap-3">
             <View className="flex-1">
-              <Text className="text-lg font-black" style={{ color: adminPalette.text }}>
+              <Text className="text-lg font-black" style={{ color: palette.text }}>
                 {farm.farmName}
               </Text>
-              <Text className="mt-1 text-sm" style={{ color: adminPalette.muted }}>
+              <Text className="mt-1 text-sm" style={{ color: palette.muted }}>
                 {farm.farmerName} | {farm.location}
               </Text>
             </View>
@@ -48,6 +49,8 @@ export default function AdminLiveFarmsScreen() {
           </View>
 
           <InlineStatBadges>
+            <StatusBadge text={farm.farmerLoginOnline ? 'LOGIN ONLINE' : 'LOGIN OFFLINE'} tone={farm.farmerLoginOnline ? 'ok' : 'warn'} />
+            <StatusBadge text={farm.farmerRole.toUpperCase()} tone={farm.farmerRole === 'admin' ? 'info' : farm.farmerRole === 'viewer' ? 'warn' : 'ok'} />
             <StatusBadge text={`MOISTURE ${Math.round(farm.avgSoil)}%`} tone="info" />
             <StatusBadge text={`TEMP ${Math.round(farm.temperature)} C`} tone="info" />
             <StatusBadge text={`HUMIDITY ${Math.round(farm.humidity)}%`} tone="info" />

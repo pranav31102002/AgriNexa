@@ -1,5 +1,6 @@
-import { DISEASE_RECOMMENDATIONS } from '@/constants/disease-recommendations';
+import i18n from '@/locales/i18n';
 import { DiseaseClass, DiseaseRecommendation } from '@/types';
+import { localizeDiseaseRecommendation } from '@/utils/farmer-localization';
 import { normalizeDiseaseClass } from '@/utils/normalizeDiseaseClass';
 
 export type RecommendationResult = {
@@ -8,7 +9,7 @@ export type RecommendationResult = {
 };
 
 export function getRecommendationByClass(disease: DiseaseClass): DiseaseRecommendation {
-  return DISEASE_RECOMMENDATIONS[disease];
+  return localizeDiseaseRecommendation(disease, i18n.t.bind(i18n));
 }
 
 export function resolveRecommendation(rawLabel: string): RecommendationResult | null {
@@ -16,6 +17,6 @@ export function resolveRecommendation(rawLabel: string): RecommendationResult | 
   if (!disease) return null;
   return {
     disease,
-    recommendation: DISEASE_RECOMMENDATIONS[disease],
+    recommendation: getRecommendationByClass(disease),
   };
 }

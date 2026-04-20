@@ -8,10 +8,13 @@ import { ScreenContainer } from '@/components/ui/screen-container';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useFarmRealtime } from '@/hooks/use-farm-realtime';
 import { useDeviceStatus } from '@/hooks/use-device-status';
+import { useWeather } from '@/hooks/useWeather';
 import { speakDashboardSummary as speakDashboardSummaryTts, stopSpeech } from '@/services/speech.service';
 import { triggerAlertIfNeeded } from '@/services/alerts.service';
 import { useAppStore } from '@/store/use-app-store';
+import { buildDashboardWeatherAdvice, formatLocalizedDate, formatLocalizedDateTime, formatLocalizedTime, translateFarmHealthLabel, translateRainRisk, translateWeatherCondition } from '@/utils/farmer-localization';
 import { getFarmHealthScoreWithRisk } from '@/utils/farm-health';
+import { rainRiskTone, weatherConditionIcon } from '@/utils/weatherMapper';
 
 function ProgressRing({ value }: { value: number }) {
   const safe = Math.max(0, Math.min(100, Math.round(value)));
@@ -30,7 +33,9 @@ export default function DashboardScreen() {
   const muted = { color: isDark ? '#CBD5E1' : '#64748B' };
   const { data, isLoading, isRefetching, isError, error } = useFarmRealtime();
   const { data: deviceStatus } = useDeviceStatus();
+  const { data: weather } = useWeather();
   const cachedPrediction = useAppStore((state) => state.cachedDiseasePrediction);
+  const language = useAppStore((state) => state.language);
   const [now, setNow] = useState(new Date());
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -132,6 +137,13 @@ export default function DashboardScreen() {
         waterPumpStatus: Boolean(data?.waterPumpStatus),
         autoMode: Boolean(data?.autoMode),
         routeState: data?.routeState ?? 'IDLE',
+        weatherSummary: weather
+          ? {
+              temperature: Number(weather.current.temperature ?? 0),
+              shouldDelayIrrigation: Boolean(weather.guidance.shouldDelayIrrigation),
+              rainExpected: Boolean(weather.guidance.rainExpectedWithin6h),
+            }
+          : undefined,
       },
       () => setIsSpeaking(false)
     );
@@ -152,13 +164,13 @@ export default function DashboardScreen() {
       <View className="overflow-hidden rounded-3xl bg-emerald-700 p-5">
         <View className="flex-row items-start justify-between">
           <View>
-            <Text className="text-xl font-black text-white">Smart Kisan Sathi</Text>
+              <Text className="text-xl font-black text-white">Smart Kisan Sathi</Text>
             <Text className="mt-1 text-xs text-emerald-100">{t('dashboardSubtitle')}</Text>
             <Text className="mt-2 text-[11px] font-semibold text-emerald-50">
-              {now.toLocaleDateString()} | {now.toLocaleTimeString()}
+              {formatLocalizedDate(now, language)} | {formatLocalizedTime(now, language)}
             </Text>
             <Text className="mt-1 text-[11px] font-semibold text-emerald-100">
-              {isRefetching ? 'Syncing live data...' : 'Live data active'}
+              {isRefetching ? t('syncingLiveData') : t('liveDataActive')}
             </Text>
           </View>
           <View className="flex-row gap-2">
@@ -187,14 +199,44 @@ export default function DashboardScreen() {
 
       {data?.offlineMode ? (
         <GlassCard>
-          <Text className="text-sm font-semibold text-amber-600">Offline mode: showing last synced farm data</Text>
+          <Text className="text-sm font-semibold text-amber-600">{t('offlineModeShowingLastSynced')}</Text>
         </GlassCard>
       ) : null}
 
       <GlassCard>
-        <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>Farm Health Score</Text>
+        <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>{t('farmHealthScore')}</Text>
         <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>{farmHealth.score}/100</Text>
-        <Text className="mt-1 text-xs font-semibold text-emerald-600">{farmHealth.label}</Text>
+        <Text className="mt-1 text-xs font-semibold text-emerald-600">{translateFarmHealthLabel(farmHealth.label, t)}</Text>
+      </GlassCard>
+
+      <GlassCard>
+        <View className="flex-row items-start justify-between">
+          <View className="flex-1 pr-3">
+            <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>{t('weatherIntelligence')}</Text>
+            <Text className="mt-1 text-2xl font-black text-slate-800" style={txt}>
+              {weather?.unavailable ? t('weatherUnavailable') : `${Math.round(weather?.current.temperature ?? 0)} ${t('unitCelsius')}`}
+            </Text>
+            <Text className="mt-1 text-sm text-slate-600" style={muted}>
+              {weather?.unavailable ? t('weatherUnavailable') : translateWeatherCondition(weather, t)}
+            </Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>
+              {t('weatherWindSpeed', { speed: Math.round(weather?.current.windSpeed ?? 0) })}
+            </Text>
+            <Text className="mt-3 text-sm font-semibold text-slate-700" style={txt}>
+              {buildDashboardWeatherAdvice(weather, t)}
+            </Text>
+          </View>
+          <View className="items-end gap-2">
+            <View className="h-12 w-12 items-center justify-center rounded-full bg-sky-500/15">
+              <MaterialCommunityIcons name={weatherConditionIcon(weather?.current.condition ?? '')} size={24} color={isDark ? '#7DD3FC' : '#0369A1'} />
+            </View>
+            <StatusBadge text={t('weatherRainChip', { risk: translateRainRisk(weather?.guidance.rainRisk, t) })} tone={rainRiskTone(weather?.guidance.rainRisk ?? 'LOW')} />
+          </View>
+        </View>
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          <StatusBadge text={t('weatherTodayRange', { min: Math.round(weather?.forecast.todayMin ?? 0), max: Math.round(weather?.forecast.todayMax ?? 0) })} tone="info" />
+          <StatusBadge text={t('weatherNext3hRain', { value: Math.round(weather?.forecast.rainProbabilityNext3h ?? 0) })} tone={rainRiskTone(weather?.guidance.rainRisk ?? 'LOW')} />
+        </View>
       </GlassCard>
 
       <GlassCard>
@@ -212,7 +254,7 @@ export default function DashboardScreen() {
       <View className="flex-row gap-3">
         <GlassCard className="flex-1">
           <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>{t('temperature')}</Text>
-          <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>{data?.temperature ?? 0} C</Text>
+          <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>{data?.temperature ?? 0} {t('unitCelsius')}</Text>
         </GlassCard>
         <GlassCard className="flex-1">
           <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>{t('humidity')}</Text>
@@ -272,7 +314,7 @@ export default function DashboardScreen() {
         <Text className="mt-1 text-xs text-slate-500" style={muted}>
           {(data?.tankWaterLevel ?? 0) < 20 ? t('lowTankDetected') : t('allSystemsStable')}
         </Text>
-        <Text className="mt-2 text-xs text-slate-400" style={muted}>{t('lastSync')}: {new Date(data?.lastSync ?? '').toLocaleString()}</Text>
+        <Text className="mt-2 text-xs text-slate-400" style={muted}>{t('lastSync')}: {formatLocalizedDateTime(data?.lastSync ?? '', language)}</Text>
       </GlassCard>
 
       {isError ? (

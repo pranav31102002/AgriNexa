@@ -9,6 +9,7 @@ import { ScreenContainer } from '@/components/ui/screen-container';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useFarmReports } from '@/hooks/use-farm-reports';
 import { stopSpeech, speakCustomSummary } from '@/services/speech.service';
+import { translateAlertType, translateDiseaseName } from '@/utils/farmer-localization';
 import { buildVoiceSummary, formatReportNumber, ReportPeriod } from '@/utils/report-insights';
 
 function SegmentButton({
@@ -89,7 +90,7 @@ export default function ReportsScreen() {
       <View className="overflow-hidden rounded-3xl">
         <LinearGradient colors={['#0f766e', '#0ea5e9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} className="p-5">
           <View className="flex-row items-start justify-between">
-          <View>
+            <View>
               <Text className="text-xl font-black text-white">{t('farmReports')}</Text>
               <Text className="mt-1 text-xs text-cyan-100">{t('farmReportsSubtitle')}</Text>
             </View>
@@ -134,14 +135,14 @@ export default function ReportsScreen() {
         <View className="gap-3">
           <View className="flex-row gap-3">
             <KPI label={t('avgSoilMoisture')} value={`${formatReportNumber(daily.avgSoilMoisture, 1)}%`} />
-            <KPI label={t('temperature')} value={`${formatReportNumber(daily.avgTemperature, 1)}°C`} />
+            <KPI label={t('temperature')} value={`${formatReportNumber(daily.avgTemperature, 1)} ${t('unitCelsius')}`} />
           </View>
           <View className="flex-row gap-3">
             <KPI label={t('humidity')} value={`${formatReportNumber(daily.avgHumidity, 0)}%`} />
             <KPI label={t('pumpCycles')} value={formatReportNumber(daily.pumpOnCycles, 0)} />
           </View>
           <View className="flex-row gap-3">
-            <KPI label={t('irrigationRuntime')} value={`${formatReportNumber(daily.irrigationRuntimeMin, 0)} min`} />
+            <KPI label={t('irrigationRuntime')} value={`${formatReportNumber(daily.irrigationRuntimeMin, 0)} ${t('unitMinutesShort')}`} />
             <KPI label={t('tankLowAlerts')} value={formatReportNumber(daily.tankLowAlerts, 0)} />
           </View>
           <View className="flex-row gap-3">
@@ -162,7 +163,7 @@ export default function ReportsScreen() {
           </GlassCard>
           <GlassCard>
             <Text className="text-sm font-semibold text-slate-700" style={txt}>{t('insight')}</Text>
-            <Text className="mt-1 text-xs text-slate-500" style={muted}>{daily.insight}</Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>{t('reportsDailyInsight')}</Text>
           </GlassCard>
         </View>
       ) : null}
@@ -235,7 +236,7 @@ export default function ReportsScreen() {
           <GlassCard>
             <Text className="mb-2 text-base font-bold text-slate-800" style={txt}>{t('weeklySummary')}</Text>
             <View className="gap-2">
-              <Text style={muted}>{t('topAlertType')}: {weekly.topAlertType}</Text>
+              <Text style={muted}>{t('topAlertType')}: {translateAlertType(weekly.topAlertType, t)}</Text>
               <Text style={muted}>{t('bestHealthDay')}: {weekly.bestHealthDay}</Text>
               <Text style={muted}>{t('worstHealthDay')}: {weekly.worstHealthDay}</Text>
               <Text style={muted}>{t('weeklyRiskScore')}: {formatReportNumber(weekly.riskScore, 0)}</Text>
@@ -248,7 +249,7 @@ export default function ReportsScreen() {
 
           <GlassCard>
             <Text className="text-sm font-semibold text-slate-700" style={txt}>{t('recommendation')}</Text>
-            <Text className="mt-1 text-xs text-slate-500" style={muted}>{weekly.recommendation}</Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>{t('reportsWeeklyRecommendation')}</Text>
           </GlassCard>
         </View>
       ) : null}
@@ -285,8 +286,11 @@ export default function ReportsScreen() {
               <PieChart donut radius={80} innerRadius={46} data={donutData} />
               <View className="ml-3 flex-1 gap-2">
                 {donutData.slice(0, 4).map((item) => (
-                  <View key={item.label} className="flex-row items-center justify-between rounded-xl px-2 py-1" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)' }}>
-                    <Text className="text-xs font-semibold" style={txt}>{item.label}</Text>
+                  <View
+                    key={item.label}
+                    className="flex-row items-center justify-between rounded-xl px-2 py-1"
+                    style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)' }}>
+                    <Text className="text-xs font-semibold" style={txt}>{translateDiseaseName(item.label, t)}</Text>
                     <Text className="text-xs font-bold" style={txt}>{item.value}</Text>
                   </View>
                 ))}
@@ -296,7 +300,7 @@ export default function ReportsScreen() {
 
           <View className="flex-row gap-3">
             <KPI label={t('irrigationCycles')} value={formatReportNumber(monthly.irrigationCycles, 0)} />
-            <KPI label={t('waterSaved')} value={`${formatReportNumber(monthly.waterSavedLiters, 0)} L`} />
+            <KPI label={t('waterSaved')} value={`${formatReportNumber(monthly.waterSavedLiters, 0)} ${t('unitLitresShort')}`} />
           </View>
           <View className="flex-row gap-3">
             <KPI label={t('pesticideUsage')} value={formatReportNumber(monthly.pesticideUsage, 0)} />
@@ -313,11 +317,11 @@ export default function ReportsScreen() {
 
           <GlassCard>
             <Text className="text-sm font-semibold text-slate-700" style={txt}>{t('topIssue')}</Text>
-            <Text className="mt-1 text-xs text-slate-500" style={muted}>{monthly.topIssue}</Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>{translateAlertType(monthly.topIssue, t)}</Text>
           </GlassCard>
           <GlassCard>
             <Text className="text-sm font-semibold text-slate-700" style={txt}>{t('insight')}</Text>
-            <Text className="mt-1 text-xs text-slate-500" style={muted}>{monthly.insight}</Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>{t('reportsMonthlyInsight')}</Text>
           </GlassCard>
         </View>
       ) : null}
