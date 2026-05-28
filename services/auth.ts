@@ -35,6 +35,8 @@ export async function signupWithProfile(payload: {
   phone: string;
   farmName: string;
   location: string;
+  farmArea: string;
+  farmDistrict?: string;
   preferredLanguage: string;
   theme: string;
   role?: 'admin' | 'farmer' | 'viewer';
@@ -47,7 +49,10 @@ export async function signupWithProfile(payload: {
     email: payload.email,
     phone: payload.phone,
     farmName: payload.farmName,
-    location: payload.location,
+    location: payload.location || payload.farmArea,
+    farmArea: payload.farmArea,
+    farmVillage: payload.farmArea,
+    farmDistrict: payload.farmDistrict ?? '',
     preferredLanguage: payload.preferredLanguage,
     theme: payload.theme,
     role: payload.role ?? 'farmer',

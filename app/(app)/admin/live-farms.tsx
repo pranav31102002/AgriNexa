@@ -1,14 +1,20 @@
 import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, InlineStatBadges, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
+import { ActionFeedback } from '@/components/ui/action-feedback';
+import { useAdminApprovals } from '@/hooks/useAdminApprovals';
+import { useAdminOperations } from '@/hooks/useAdminOperations';
 import { useVillageFarms } from '@/hooks/useVillageFarms';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 export default function AdminLiveFarmsScreen() {
   const { palette } = useAdminTheme();
-  const { data } = useVillageFarms();
+  const { data, dataHealth } = useVillageFarms();
+  const { emergencyStopAll, emergencyStopping, syncNow, syncingNow } = useAdminOperations();
+  const { approvals, requestApproval, requestingApproval, executeApproval, executingApproval } = useAdminApprovals();
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [feedback, setFeedback] = useState<{ title: string; subtitle: string; variant: 'success' | 'warning' | 'info' } | null>(null);
   const farms = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (data ?? []).filter((farm) => {
@@ -18,9 +24,13 @@ export default function AdminLiveFarmsScreen() {
       return [farm.farmName, farm.farmerName, farm.location].some((value) => value.toLowerCase().includes(q));
     });
   }, [data, search, stateFilter]);
+  const emergencyStopApproval = approvals.find(
+    (approval) => approval.status === 'pending' && approval.actionType === 'EMERGENCY_STOP_ALL' && approval.targetId === 'GLOBAL'
+  );
 
   return (
-    <AdminMobileShell title="Live Farms" subtitle="Phone-friendly farm monitoring with strong status chips and compact telemetry.">
+    <>
+      <AdminMobileShell title="Live Farms" subtitle="Phone-friendly farm monitoring with strong status chips and compact telemetry." dataHealth={dataHealth}>
       <AdminSectionHeader title="Farm Feed" subtitle="Search and inspect current farm-level telemetry from the live index." />
 
       <GlassCard>
@@ -29,6 +39,71 @@ export default function AdminLiveFarmsScreen() {
           {(['all', 'online', 'offline'] as const).map((value) => (
             <FilterChip key={value} label={value.toUpperCase()} active={stateFilter === value} onPress={() => setStateFilter(value)} />
           ))}
+        </View>
+        <View className="mt-4 flex-row gap-2">
+          <Pressable
+            className="flex-1 rounded-full px-4 py-3"
+            style={{ backgroundColor: palette.cardElevated }}
+            disabled={syncingNow}
+            onPress={() => {
+              void syncNow()
+                .then(() => setFeedback({ title: 'Sync Complete', subtitle: 'Admin snapshot refreshed successfully.', variant: 'success' }))
+                .catch(() => setFeedback({ title: 'Sync Failed', subtitle: 'Could not refresh admin snapshot. Try again.', variant: 'warning' }));
+            }}>
+            <Text className="text-center text-xs font-bold" style={{ color: palette.text }}>
+              {syncingNow ? 'Syncing...' : 'Sync Now'}
+            </Text>
+          </Pressable>
+          <Pressable
+            className="flex-1 rounded-full px-4 py-3"
+            style={{ backgroundColor: '#3A171A' }}
+            disabled={emergencyStopping || requestingApproval || executingApproval}
+            onPress={() => {
+              if (!emergencyStopApproval) {
+                Alert.alert('Request Approval', 'Create approval request for global emergency stop?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Request',
+                    onPress: () => {
+                      void requestApproval({
+                        actionType: 'EMERGENCY_STOP_ALL',
+                        targetId: 'GLOBAL',
+                        summary: 'Global emergency stop for all active farm routes.',
+                      })
+                        .then(() => setFeedback({ title: 'Approval Requested', subtitle: 'Emergency stop now requires approve-and-execute.', variant: 'info' }))
+                        .catch(() => setFeedback({ title: 'Request Failed', subtitle: 'Could not create approval request.', variant: 'warning' }));
+                    },
+                  },
+                ]);
+                return;
+              }
+
+              Alert.alert('Approve & Execute', 'Approval exists. Execute global emergency stop now?', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Execute',
+                  style: 'destructive',
+                  onPress: () => {
+                    void executeApproval({
+                      approval: emergencyStopApproval,
+                      executor: emergencyStopAll,
+                    })
+                      .then(() => setFeedback({ title: 'Emergency Stop Applied', subtitle: 'Approved action executed across all routes.', variant: 'warning' }))
+                      .catch(() => setFeedback({ title: 'Execution Failed', subtitle: 'Could not execute approved emergency stop.', variant: 'warning' }));
+                  },
+                },
+              ]);
+            }}>
+            <Text className="text-center text-xs font-bold text-white">
+              {emergencyStopping || executingApproval
+                ? 'Executing...'
+                : requestingApproval
+                  ? 'Requesting...'
+                  : emergencyStopApproval
+                    ? 'Approve & Stop'
+                    : 'Request Stop Approval'}
+            </Text>
+          </Pressable>
         </View>
       </GlassCard>
 
@@ -70,6 +145,8 @@ export default function AdminLiveFarmsScreen() {
           </View>
         </GlassCard>
       ))}
-    </AdminMobileShell>
+      </AdminMobileShell>
+      {feedback ? <ActionFeedback title={feedback.title} subtitle={feedback.subtitle} variant={feedback.variant} onHide={() => setFeedback(null)} /> : null}
+    </>
   );
 }

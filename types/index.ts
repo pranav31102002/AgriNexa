@@ -14,6 +14,8 @@ export interface UserProfile {
   phone: string;
   farmName: string;
   location: string;
+  farmArea?: string;
+  farmDistrict?: string;
   role?: UserRole;
   theme?: ThemeMode;
 }
@@ -78,6 +80,8 @@ export type {
   AdminDashboardPayload,
   AdminFarmerRow,
   AdminGlobalAnalytics,
+  HighRiskActionType,
+  HighRiskApproval,
   AdminReportsPayload,
 } from '@/types/admin';
 export type { FarmStatus } from '@/types/farmStatus';

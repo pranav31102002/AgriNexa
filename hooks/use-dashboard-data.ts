@@ -46,6 +46,19 @@ function toMs(ts?: number) {
   return ts < 10_000_000_000 ? ts * 1000 : ts;
 }
 
+const DEVICE_HEARTBEAT_TIMEOUT_MS = 90_000;
+
+function isDeviceHeartbeatOnline(status?: FirebaseDeviceStatus) {
+  if (!status?.lastSeen) return false;
+  const age = Date.now() - toMs(status.lastSeen);
+  if (age < 0 || age > DEVICE_HEARTBEAT_TIMEOUT_MS) return false;
+  const connection = String(status.connection ?? '').toLowerCase();
+  if (status.online === true) return true;
+  if (connection === 'connected' || connection === 'online' || connection === 'up') return true;
+  // Some firmware sends reliable heartbeat but not boolean online.
+  return true;
+}
+
 function inferDeviceOnline(sensors: FirebaseSensorsCurrent, mainStatus?: FirebaseDeviceStatus, camStatus?: FirebaseDeviceStatus) {
   const temp = Number(sensors.temperature);
   const humidity = Number(sensors.humidity);
@@ -54,14 +67,8 @@ function inferDeviceOnline(sensors: FirebaseSensorsCurrent, mainStatus?: Firebas
   const hasFreshSensorUpdate = sensors.timestamp ? ageMs >= 0 && ageMs <= 300_000 : false;
   const hasRecentReadingWithoutTimestamp = !sensors.timestamp && hasLiveReadings && (temp !== 0 || humidity !== 0);
 
-  const waterLastSeen = toMs(mainStatus?.lastSeen);
-  const camLastSeen = toMs(camStatus?.lastSeen);
-  const lastSeenFresh =
-    (waterLastSeen > 0 && Date.now() - waterLastSeen <= 300_000) ||
-    (camLastSeen > 0 && Date.now() - camLastSeen <= 300_000);
-
-  const statusOnline = Boolean(mainStatus?.online || camStatus?.online);
-  return (hasLiveReadings && hasFreshSensorUpdate) || hasRecentReadingWithoutTimestamp || statusOnline || lastSeenFresh;
+  const heartbeatOnline = isDeviceHeartbeatOnline(mainStatus) || isDeviceHeartbeatOnline(camStatus);
+  return (hasLiveReadings && hasFreshSensorUpdate) || hasRecentReadingWithoutTimestamp || heartbeatOnline;
 }
 
 function deriveRouteState(

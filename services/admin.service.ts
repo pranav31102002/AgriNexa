@@ -23,6 +23,8 @@ type AdminSnapshot = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEVICE_HEARTBEAT_TIMEOUT_MS = 90_000;
+const FARM_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
 
 function toNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -57,14 +59,25 @@ function isRecentTimestamp(value: unknown, windowMs = 300_000) {
 
 function isOnline(status?: FirebaseDeviceStatus | null) {
   if (!status) return false;
-  if (status.online) return true;
-  return isRecentTimestamp(status.lastSeen);
+  const ms = toMs(status.lastSeen);
+  if (!ms) return false;
+  if (Date.now() - ms > DEVICE_HEARTBEAT_TIMEOUT_MS) return false;
+  return status.online === true;
+}
+
+async function safeGetRealtimeOnce<T>(path: string): Promise<T | null> {
+  try {
+    return await getRealtimeOnce<T>(path);
+  } catch {
+    return null;
+  }
 }
 
 function isFarmerLoginOnline(profile?: Record<string, unknown> | null) {
   if (!profile) return false;
-  if (toBool(profile.sessionOnline)) return true;
-  return isRecentTimestamp(profile.sessionLastSeen);
+  const lastSeenOnline = isRecentTimestamp(profile.sessionLastSeen, FARM_ACTIVITY_WINDOW_MS);
+  if (toBool(profile.sessionOnline) && lastSeenOnline) return true;
+  return false;
 }
 
 function inferFarmOnline(
@@ -78,7 +91,18 @@ function inferFarmOnline(
   const farmLastSyncOnline = isRecentTimestamp(raw?.lastSync);
   const sensorOnline = isRecentTimestamp(sensorsCurrent?.timestamp);
   const statusFlagOnline = toBool(raw?.online);
-  return statusFlagOnline || farmLastSyncOnline || sensorOnline || mainOnline || camOnline;
+  const platformOnline = sensorOnline || mainOnline || camOnline;
+  const hasFarmSignalFields = raw?.online !== undefined || raw?.lastSync !== undefined;
+  // If farm row says online or has fresh farm sync, trust it first.
+  if (statusFlagOnline || farmLastSyncOnline) return true;
+  // If farm row has no own signal fields, fallback to platform heartbeat.
+  if (!hasFarmSignalFields) return platformOnline;
+  // If farm signal is stale for a long time but platform heartbeat is live, surface as online.
+  // This prevents "always offline" in Live tab when farmsIndex heartbeat write is delayed.
+  const farmLastSyncMs = toMs(raw?.lastSync);
+  const staleTooLong = !farmLastSyncMs || Date.now() - farmLastSyncMs > 30 * 60 * 1000;
+  if (staleTooLong && platformOnline) return true;
+  return false;
 }
 
 function buildAlert(id: string, raw: Record<string, unknown>): AdminAlert {
@@ -86,6 +110,19 @@ function buildAlert(id: string, raw: Record<string, unknown>): AdminAlert {
   const resolved = toBool(raw?.resolved);
   const reason = toText(raw?.reason, toText(raw?.title, 'No reason provided'));
   const details = toText(raw?.details, toText(raw?.message, reason));
+  const alertTs = toTimestamp(raw?.timestamp);
+  const acknowledgedAt = toTimestamp(raw?.acknowledgedAt);
+  const escalationLevelRaw = toNumber(raw?.escalationLevel, 0);
+  const escalationLevel = escalationLevelRaw >= 3 ? 3 : escalationLevelRaw >= 2 ? 2 : escalationLevelRaw >= 1 ? 1 : 0;
+  const incidentStatusRaw = toText(raw?.incidentStatus, resolved ? 'resolved' : acknowledgedAt ? 'acknowledged' : 'open');
+  const incidentStatus: AdminAlert['incidentStatus'] =
+    incidentStatusRaw === 'acknowledged' || incidentStatusRaw === 'escalated' || incidentStatusRaw === 'resolved'
+      ? incidentStatusRaw
+      : 'open';
+  const slaWindowSec = severity === 'critical' ? 15 * 60 : severity === 'warning' ? 45 * 60 : 2 * 60 * 60;
+  const slaDeadline = toTimestamp(raw?.slaDeadline) || (alertTs ? alertTs + slaWindowSec : 0);
+  const slaBreached = !resolved && slaDeadline > 0 && Math.floor(Date.now() / 1000) > slaDeadline;
+  const resolvedAt = toTimestamp(raw?.resolvedAt);
 
   return {
     id,
@@ -93,13 +130,19 @@ function buildAlert(id: string, raw: Record<string, unknown>): AdminAlert {
     farmName: toText(raw?.farmName, 'Unknown Farm'),
     farmerName: toText(raw?.farmerName, 'Unknown Farmer'),
     type: toText(raw?.type, 'LOW_MOISTURE') as AdminAlert['type'],
-    timestamp: toTimestamp(raw?.timestamp),
+    timestamp: alertTs,
     resolved,
     status: resolved ? 'resolved' : 'open',
     reason,
     details,
     userUid: toText(raw?.uid ?? raw?.userUid),
     farmId: toText(raw?.farmId),
+    acknowledgedAt,
+    incidentStatus: resolved ? 'resolved' : incidentStatus,
+    escalationLevel,
+    slaDeadline,
+    slaBreached,
+    resolvedAt,
   };
 }
 
@@ -241,6 +284,139 @@ function inferPendingSprayApprovals(rawApproval: Record<string, unknown> | null)
   return 0;
 }
 
+function toActivityLabel(type: string, routeMode: string, farmStatus: string) {
+  const normalized = type.toUpperCase();
+  if (normalized.includes('WATER') || routeMode === 'WATER') return 'Water route started';
+  if (normalized.includes('SPRAY') || routeMode === 'SPRAY') return 'Spray route active';
+  if (normalized.includes('EMERGENCY_STOP')) return 'Emergency stop triggered';
+  if (normalized.includes('ALERT')) return 'Farm alert generated';
+  if (normalized.includes('DISEASE')) return 'Disease scan completed';
+  if (farmStatus.toUpperCase().includes('OFFLINE')) return 'Device offline event';
+  return 'Farm action recorded';
+}
+
+function buildRecentActivity(rawActions: RealtimeMap | null) {
+  return Object.entries(rawActions ?? {})
+    .map(([id, value]) => {
+      const timestamp = toTimestamp(value?.timestamp);
+      const severity = value?.severity === 'critical' || value?.severity === 'warning' ? value.severity : 'info';
+      const type = toText(value?.type, 'ACTION');
+      const routeMode = toText(value?.routeMode, 'IDLE').toUpperCase();
+      const farmStatus = toText(value?.farmStatus, 'UNKNOWN');
+      return {
+        id,
+        timestamp,
+        severity,
+        label: toActivityLabel(type, routeMode, farmStatus),
+      };
+    })
+    .filter((item) => item.timestamp > 0)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 10);
+}
+
+function computeDeltaPercent(points: Array<{ value: number }>) {
+  if (points.length < 2) return 0;
+  const split = Math.max(Math.floor(points.length / 2), 1);
+  const previous = points.slice(0, split);
+  const recent = points.slice(split);
+  const prevAvg = previous.reduce((sum, point) => sum + point.value, 0) / Math.max(previous.length, 1);
+  const recentAvg = recent.reduce((sum, point) => sum + point.value, 0) / Math.max(recent.length, 1);
+  if (prevAvg <= 0) return recentAvg > 0 ? 100 : 0;
+  return Math.round(((recentAvg - prevAvg) / prevAvg) * 100);
+}
+
+function buildActionQueue(params: { offlineDevices: number; activeAlerts: number; lowSoilFarms: number; criticalFarms: number }) {
+  const queue: string[] = [];
+  if (params.offlineDevices > 0) queue.push(`Inspect ${params.offlineDevices} offline device(s) and confirm heartbeat recovery.`);
+  if (params.activeAlerts > 0) queue.push(`Resolve ${params.activeAlerts} open alert(s), prioritizing critical severity.`);
+  if (params.lowSoilFarms > 0) queue.push(`Review irrigation automation for ${params.lowSoilFarms} low-moisture farm(s).`);
+  if (params.criticalFarms > 0) queue.push(`Escalate ${params.criticalFarms} high-risk farm(s) to field operations.`);
+  if (!queue.length) queue.push('All farm systems stable. Continue routine monitoring and daily sync checks.');
+  return queue;
+}
+
+function buildInsightSummary(params: { irrigationDelta: number; scansDelta: number; alertsDelta: number; activeAlerts: number }) {
+  if (params.activeAlerts === 0 && params.alertsDelta <= 0) {
+    return `Alerts are stable with no active critical pressure. Irrigation trend ${params.irrigationDelta >= 0 ? 'increased' : 'decreased'} by ${Math.abs(params.irrigationDelta)}% this week.`;
+  }
+  if (params.alertsDelta > 0) {
+    return `Alert activity rose by ${params.alertsDelta}% this week. Prioritize risk triage while irrigation moved ${params.irrigationDelta >= 0 ? 'up' : 'down'} by ${Math.abs(params.irrigationDelta)}%.`;
+  }
+  return `Disease scan activity changed by ${params.scansDelta}% and irrigation shifted by ${params.irrigationDelta}%. Continue active monitoring of open alerts.`;
+}
+
+function buildSlaComplianceTrend(alerts: AdminAlert[]) {
+  const days = Array.from({ length: 7 }, (_, index) => index);
+  const nowSec = Math.floor(Date.now() / 1000);
+  return days.map((offset) => {
+    const dayStart = nowSec - (6 - offset) * 24 * 60 * 60;
+    const dayEnd = dayStart + 24 * 60 * 60;
+    const dayAlerts = alerts.filter((alert) => alert.timestamp >= dayStart && alert.timestamp < dayEnd);
+    if (!dayAlerts.length) return { label: `${offset + 1}d`, value: 100 };
+    const compliant = dayAlerts.filter((alert) => !alert.slaBreached).length;
+    return { label: `${offset + 1}d`, value: Math.round((compliant / dayAlerts.length) * 100) };
+  });
+}
+
+function buildIncidentOps(alerts: AdminAlert[]) {
+  const ackDurationsMin = alerts
+    .filter((alert) => alert.acknowledgedAt > 0 && alert.timestamp > 0 && alert.acknowledgedAt >= alert.timestamp)
+    .map((alert) => (alert.acknowledgedAt - alert.timestamp) / 60);
+  const resolveDurationsMin = alerts
+    .filter((alert) => alert.resolvedAt > 0 && alert.timestamp > 0 && alert.resolvedAt >= alert.timestamp)
+    .map((alert) => (alert.resolvedAt - alert.timestamp) / 60);
+  const mttaMinutes = ackDurationsMin.length
+    ? Math.round(ackDurationsMin.reduce((sum, value) => sum + value, 0) / ackDurationsMin.length)
+    : 0;
+  const mttrMinutes = resolveDurationsMin.length
+    ? Math.round(resolveDurationsMin.reduce((sum, value) => sum + value, 0) / resolveDurationsMin.length)
+    : 0;
+  const slaCompliancePct = alerts.length ? Math.round((alerts.filter((alert) => !alert.slaBreached).length / alerts.length) * 100) : 100;
+
+  return {
+    mttaMinutes,
+    mttrMinutes,
+    slaCompliancePct,
+    escalationFunnel: {
+      open: alerts.filter((alert) => alert.incidentStatus === 'open').length,
+      acknowledged: alerts.filter((alert) => alert.incidentStatus === 'acknowledged').length,
+      escalated: alerts.filter((alert) => alert.incidentStatus === 'escalated').length,
+      resolved: alerts.filter((alert) => alert.incidentStatus === 'resolved').length,
+    },
+    escalationLevels: {
+      l0: alerts.filter((alert) => alert.escalationLevel === 0).length,
+      l1: alerts.filter((alert) => alert.escalationLevel === 1).length,
+      l2: alerts.filter((alert) => alert.escalationLevel === 2).length,
+      l3: alerts.filter((alert) => alert.escalationLevel === 3).length,
+    },
+    slaComplianceTrend: buildSlaComplianceTrend(alerts),
+  };
+}
+
+function buildFallbackFarmFromProfile(
+  uid: string,
+  profile: Record<string, unknown>,
+  sensorsCurrent: FirebaseSensorsCurrent | null,
+  mainStatus: FirebaseDeviceStatus | null,
+  camStatus: FirebaseDeviceStatus | null
+): FarmStatus {
+  const farmName = toText(profile?.farmName, 'Unnamed Farm');
+  const location = toText(profile?.location || profile?.farmArea || profile?.farmVillage, 'Unknown Location');
+  const farmerName = toText(profile?.name, 'Unknown Farmer');
+  const farmerRole = normalizeUserRole(profile?.role);
+  const fallbackRaw: Record<string, unknown> = {
+    uid,
+    farmName,
+    farmerName,
+    location,
+    online: toBool(profile?.sessionOnline, false),
+    lastSync: profile?.sessionLastSeen ?? profile?.lastLogin ?? sensorsCurrent?.timestamp ?? 0,
+  };
+
+  return buildFarm(`profile_${uid}`, fallbackRaw, profile, sensorsCurrent, mainStatus, camStatus);
+}
+
 export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
   const [
     profilesRaw,
@@ -254,18 +430,20 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     weeklyReport,
     monthlyReport,
     pesticideApproval,
+    actionLogsRaw,
   ] = await Promise.all([
-    getRealtimeOnce<RealtimeMap>(firebasePaths.userProfiles),
-    getRealtimeOnce<RealtimeMap>(firebasePaths.adminGlobalAnalytics),
-    getRealtimeOnce<RealtimeMap>(firebasePaths.adminAlerts),
-    getRealtimeOnce<RealtimeMap>(firebasePaths.adminFarmsIndex),
-    getRealtimeOnce<FirebaseSensorsCurrent>(firebasePaths.sensorsCurrent),
-    getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusMain),
-    getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusCam),
-    getRealtimeOnce<DailyReport>(firebasePaths.reportsDaily),
-    getRealtimeOnce<WeeklyReport>(firebasePaths.reportsWeekly),
-    getRealtimeOnce<MonthlyReport>(firebasePaths.reportsMonthly),
-    getRealtimeOnce<Record<string, unknown>>(`${firebasePaths.pesticide}/approval`),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.userProfiles),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.adminGlobalAnalytics),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.adminAlerts),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.adminFarmsIndex),
+    safeGetRealtimeOnce<FirebaseSensorsCurrent>(firebasePaths.sensorsCurrent),
+    safeGetRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusMain),
+    safeGetRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusCam),
+    safeGetRealtimeOnce<DailyReport>(firebasePaths.reportsDaily),
+    safeGetRealtimeOnce<WeeklyReport>(firebasePaths.reportsWeekly),
+    safeGetRealtimeOnce<MonthlyReport>(firebasePaths.reportsMonthly),
+    safeGetRealtimeOnce<Record<string, unknown>>(`${firebasePaths.pesticide}/approval`),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.logsActions),
   ]);
 
   const alerts = buildAlerts(alertsRaw);
@@ -286,12 +464,26 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     );
   });
 
+  const existingFarmers = new Set(farms.map((farm) => farm.farmerUid).filter(Boolean));
+  const fallbackFarms = Object.entries(profilesRaw ?? {})
+    .filter(([uid, profile]) => normalizeUserRole(profile?.role) === 'farmer' && !existingFarmers.has(uid))
+    .map(([uid, profile]) => buildFallbackFarmFromProfile(uid, (profile ?? {}) as Record<string, unknown>, sensorsCurrent, mainStatus, camStatus));
+
+  const mergedFarms = [...farms, ...fallbackFarms];
+
   const farmsByUser = new Map<string, FarmStatus[]>();
-  farms.forEach((farm) => {
+  mergedFarms.forEach((farm) => {
     if (!farm.farmerUid) return;
     const existing = farmsByUser.get(farm.farmerUid) ?? [];
     existing.push(farm);
     farmsByUser.set(farm.farmerUid, existing);
+  });
+
+  const indexFarmByUser = new Map<string, Record<string, unknown>>();
+  Object.values(farmsIndexRaw ?? {}).forEach((value) => {
+    const uid = toText(value?.uid ?? value?.farmerUid);
+    if (!uid || indexFarmByUser.has(uid)) return;
+    indexFarmByUser.set(uid, (value ?? {}) as Record<string, unknown>);
   });
 
   const farmerRows: AdminFarmerRow[] = Object.entries(profilesRaw ?? {}).map(([uid, profile]) => {
@@ -300,7 +492,9 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     const active = toBool(profile?.active, true);
     const loginOnline = isFarmerLoginOnline(profile);
     const primaryFarm = linkedFarms[0];
+    const indexFarm = indexFarmByUser.get(uid);
     const linkedDeviceCount = linkedFarms.reduce((count, farm) => count + 1 + (farm.cameraAvailable ? 1 : 0), 0);
+    const inferredDeviceOnline = linkedFarms.some((farm) => farm.online) || isRecentTimestamp(indexFarm?.lastSync, 300_000) || toBool(indexFarm?.online);
 
     return {
       uid,
@@ -316,27 +510,29 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       loginOnline,
       loginLastSeen: toTimestamp(profile?.sessionLastSeen),
       routeEfficiency: toNumber(globalRaw?.avgRouteEfficiency ?? dailyReport?.routeEfficiencyPercent ?? weeklyReport?.routeEfficiencyPercent),
-      deviceOnline: linkedFarms.some((farm) => farm.online),
+      deviceOnline: inferredDeviceOnline,
       farmCount: linkedFarms.length || (profile?.farmName ? 1 : 0),
       linkedDeviceCount,
       status: active ? 'active' : 'inactive',
     };
   });
 
-  const totalFarms = farms.length || new Set(farmerRows.map((row) => row.farmName).filter(Boolean)).size;
+  const totalFarms = mergedFarms.length || new Set(farmerRows.map((row) => row.farmName).filter(Boolean)).size;
   const activeAlerts = alerts.filter((alert) => !alert.resolved).length;
   const totalFarmers = farmerRows.filter((row) => row.role === 'farmer').length;
+  const loggedInFarmers = farmerRows.filter((row) => row.role === 'farmer' && row.loginOnline).length;
   const totalViewers = farmerRows.filter((row) => row.role === 'viewer').length;
   const totalAdmins = farmerRows.filter((row) => row.role === 'admin').length;
   const mainDeviceKnown = Boolean(mainStatus);
-  const camDeviceKnown = Boolean(camStatus) || farms.some((farm) => farm.cameraAvailable);
+  const camDeviceKnown = Boolean(camStatus) || mergedFarms.some((farm) => farm.cameraAvailable);
   const onlineDevices = [isOnline(mainStatus), isOnline(camStatus)].filter(Boolean).length;
   const totalKnownDevices = Number(mainDeviceKnown) + Number(camDeviceKnown);
   const offlineDevices = Math.max(totalKnownDevices - onlineDevices, 0);
-  const farmsOnline = farms.filter((farm) => farm.online).length;
+  const farmsOnline = mergedFarms.filter((farm) => farm.online).length;
 
   const summary: AdminCommandSummary = {
     totalFarmers,
+    loggedInFarmers,
     totalFarms,
     totalViewers,
     totalAdmins,
@@ -389,14 +585,49 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       offline: summary.offlineDevices,
       cameraAvailable: farms.some((farm) => farm.cameraAvailable) || isOnline(camStatus) ? 1 : 0,
     },
-    problematicFarms: buildProblematicFarms(farms, unresolvedByFarm),
+    problematicFarms: buildProblematicFarms(mergedFarms, unresolvedByFarm),
+    insightSummary: '',
+    weeklyDeltas: {
+      alertsPct: 0,
+      irrigationPct: 0,
+      scansPct: 0,
+    },
+    actionQueue: [],
+    recentActivity: buildRecentActivity(actionLogsRaw),
+    incidentOps: {
+      mttaMinutes: 0,
+      mttrMinutes: 0,
+      slaCompliancePct: 100,
+      escalationFunnel: { open: 0, acknowledged: 0, escalated: 0, resolved: 0 },
+      escalationLevels: { l0: 0, l1: 0, l2: 0, l3: 0 },
+      slaComplianceTrend: [],
+    },
   };
+  const alertsPct = computeDeltaPercent(analytics.alerts);
+  const irrigationPct = computeDeltaPercent(analytics.irrigation);
+  const scansPct = computeDeltaPercent(analytics.diseaseScans);
+  const lowSoilFarms = mergedFarms.filter((farm) => farm.avgSoil < 30).length;
+  const criticalFarms = analytics.problematicFarms.filter((farm) => farm.score >= 5).length;
+  analytics.weeklyDeltas = { alertsPct, irrigationPct, scansPct };
+  analytics.actionQueue = buildActionQueue({
+    offlineDevices: summary.offlineDevices,
+    activeAlerts: summary.activeAlerts,
+    lowSoilFarms,
+    criticalFarms,
+  });
+  analytics.insightSummary = buildInsightSummary({
+    irrigationDelta: irrigationPct,
+    scansDelta: scansPct,
+    alertsDelta: alertsPct,
+    activeAlerts: summary.activeAlerts,
+  });
+  analytics.incidentOps = buildIncidentOps(alerts);
 
   const reports: AdminReportsPayload = {
     daily: dailyReport ?? null,
     weekly: weeklyReport ?? null,
     monthly: monthlyReport ?? null,
-    farmSummary: farms.map((farm) => ({
+    farmSummary: mergedFarms.map((farm) => ({
       farmId: farm.farmId,
       farmName: farm.farmName,
       farmerName: farm.farmerName,
@@ -417,7 +648,7 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     dashboard: {
       global,
       alerts,
-      farms,
+      farms: mergedFarms,
       farmers: farmerRows,
       summary,
     },

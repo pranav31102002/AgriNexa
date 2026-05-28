@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
-import * as Location from 'expo-location';
 import { firebasePaths } from '@/constants/firebase-paths';
 import { cacheKeys, getCache, setCache } from '@/services/cache.service';
 import { getRealtimeOnce, setRealtime } from '@/services/firebase';
@@ -15,7 +14,7 @@ import { useAppStore } from '@/store/use-app-store';
 import { useAuthStore } from '@/store/use-auth-store';
 
 const FARM_LOCATION_KEY = 'farmLocation';
-const WEATHER_REFRESH_MS = 20 * 60 * 1000;
+const WEATHER_REFRESH_MS = 5 * 60 * 1000;
 
 type WeatherCache = WeatherPayload & {
   location: FarmLocation | null;
@@ -58,14 +57,29 @@ async function saveStoredLocation(location: FarmLocation) {
   }
 }
 
-async function resolveVillage(latitude: number, longitude: number, fallbackVillage: string) {
-  try {
-    const places = await Location.reverseGeocodeAsync({ latitude, longitude });
-    const place = places[0];
-    return place?.subregion || place?.district || place?.city || place?.region || fallbackVillage;
-  } catch {
-    return fallbackVillage;
-  }
+async function geocodeFarmArea(area: string, district?: string): Promise<FarmLocation | null> {
+  const query = district?.trim() ? `${area}, ${district}, India` : `${area}, India`;
+  const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  url.searchParams.set('name', query);
+  url.searchParams.set('count', '1');
+  url.searchParams.set('language', 'en');
+  url.searchParams.set('format', 'json');
+
+  const response = await fetch(url.toString());
+  if (!response.ok) return null;
+  const json = (await response.json()) as {
+    results?: Array<{ name?: string; latitude?: number; longitude?: number; admin1?: string }>;
+  };
+  const top = json.results?.[0];
+  if (!top) return null;
+  const latitude = Number(top.latitude);
+  const longitude = Number(top.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return {
+    latitude,
+    longitude,
+    village: String(top.name ?? area),
+  };
 }
 
 async function readProfileLocation(uid?: string | null) {
@@ -73,52 +87,50 @@ async function readProfileLocation(uid?: string | null) {
   const profile = await getRealtimeOnce<Record<string, unknown>>(`${firebasePaths.userProfiles}/${uid}`);
   if (!profile) return null;
 
+  const latitude = Number(profile.farmLatitude);
+  const longitude = Number(profile.farmLongitude);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    return {
+      latitude,
+      longitude,
+      village:
+        (typeof profile.farmVillage === 'string' && profile.farmVillage.trim()) ||
+        (typeof profile.farmArea === 'string' && profile.farmArea.trim()) ||
+        (typeof profile.location === 'string' && profile.location.trim()) ||
+        'Farm Location',
+    } satisfies FarmLocation;
+  }
+
   const explicitFarmLocation = toFarmLocation(profile.farmLocation, 'Farm Location');
   if (explicitFarmLocation) return explicitFarmLocation;
 
-  const nestedLocation = toFarmLocation(profile.location, 'Farm Location');
-  if (nestedLocation) return nestedLocation;
-
-  const village = typeof profile.location === 'string' && profile.location.trim() ? profile.location : 'Farm Location';
-  return village ? { latitude: NaN, longitude: NaN, village } : null;
+  const area =
+    (typeof profile.farmArea === 'string' && profile.farmArea.trim()) ||
+    (typeof profile.farmVillage === 'string' && profile.farmVillage.trim()) ||
+    (typeof profile.location === 'string' && profile.location.trim()) ||
+    '';
+  const district = typeof profile.farmDistrict === 'string' ? profile.farmDistrict.trim() : '';
+  if (!area) return null;
+  const resolved = await geocodeFarmArea(area, district);
+  if (!resolved) return { latitude: NaN, longitude: NaN, village: area };
+  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmVillage`, resolved.village);
+  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLatitude`, resolved.latitude);
+  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLongitude`, resolved.longitude);
+  return resolved;
 }
 
 async function resolveFarmerLocation(uid?: string | null, profileVillage?: string) {
   const fallbackVillage = profileVillage?.trim() || 'Farm Location';
-  const stored = await readStoredLocation();
-  if (stored) return stored;
-
   const savedProfileLocation = await readProfileLocation(uid);
   if (savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)) {
     await saveStoredLocation(savedProfileLocation);
     return savedProfileLocation;
   }
-
-  try {
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (!permission.granted) {
-      return savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)
-        ? savedProfileLocation
-        : null;
-    }
-
-    const current = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-    const latitude = Number(current.coords.latitude);
-    const longitude = Number(current.coords.longitude);
-    const village = await resolveVillage(latitude, longitude, savedProfileLocation?.village || fallbackVillage);
-    const nextLocation = { latitude, longitude, village };
-    await saveStoredLocation(nextLocation);
-    if (uid) {
-      await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLocation`, nextLocation);
-    }
-    return nextLocation;
-  } catch {
-    return savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)
-      ? savedProfileLocation
-      : null;
-  }
+  const stored = await readStoredLocation();
+  if (stored) return stored;
+  return savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)
+    ? savedProfileLocation
+    : { latitude: NaN, longitude: NaN, village: fallbackVillage };
 }
 
 function toUnavailable(location: FarmLocation | null, fallback?: Partial<WeatherCache>): WeatherCache {
@@ -162,19 +174,11 @@ export function useWeather() {
   const profileLocation = useAppStore((state) => state.profile.location);
 
   return useQuery({
-    queryKey: ['farmer-weather', user?.uid ?? 'guest'],
+    queryKey: ['farmer-weather', user?.uid ?? 'guest', profileLocation ?? ''],
     enabled: role !== 'admin',
     queryFn: async () => {
       const cached = await getCache<WeatherCache>(cacheKeys.weather);
       const location = await resolveFarmerLocation(user?.uid, profileLocation);
-
-      if (cached && Date.now() - cached.fetchedAt < WEATHER_REFRESH_MS) {
-        return {
-          ...cached,
-          location: location ?? cached.location,
-          source: cached.source === 'live' ? 'cache' : cached.source,
-        } satisfies WeatherCache;
-      }
 
       if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
         if (cached) return { ...cached, location: location ?? cached.location, source: 'cache' } satisfies WeatherCache;
@@ -226,7 +230,9 @@ export function useWeather() {
     staleTime: WEATHER_REFRESH_MS,
     gcTime: WEATHER_REFRESH_MS * 3,
     refetchInterval: WEATHER_REFRESH_MS,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
     retry: 1,
   });
 }

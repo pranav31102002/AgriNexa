@@ -213,6 +213,9 @@ export default function DashboardScreen() {
         <View className="flex-row items-start justify-between">
           <View className="flex-1 pr-3">
             <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>{t('weatherIntelligence')}</Text>
+            <Text className="mt-1 text-xs font-semibold text-slate-600" style={muted}>
+              {t('farmWeatherTitle', { area: weather?.location?.village ?? t('farmName') })}
+            </Text>
             <Text className="mt-1 text-2xl font-black text-slate-800" style={txt}>
               {weather?.unavailable ? t('weatherUnavailable') : `${Math.round(weather?.current.temperature ?? 0)} ${t('unitCelsius')}`}
             </Text>
@@ -234,7 +237,14 @@ export default function DashboardScreen() {
           </View>
         </View>
         <View className="mt-4 flex-row flex-wrap gap-2">
-          <StatusBadge text={t('weatherTodayRange', { min: Math.round(weather?.forecast.todayMin ?? 0), max: Math.round(weather?.forecast.todayMax ?? 0) })} tone="info" />
+          <StatusBadge
+            text={t('weatherTodayRange', {
+              min: Math.round(weather?.forecast.todayMin ?? 0),
+              max: Math.round(weather?.forecast.todayMax ?? 0),
+              unitCelsius: t('unitCelsius'),
+            })}
+            tone="info"
+          />
           <StatusBadge text={t('weatherNext3hRain', { value: Math.round(weather?.forecast.rainProbabilityNext3h ?? 0) })} tone={rainRiskTone(weather?.guidance.rainRisk ?? 'LOW')} />
         </View>
       </GlassCard>

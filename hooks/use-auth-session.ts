@@ -1,6 +1,6 @@
 import { AppState } from 'react-native';
 import { useEffect, useRef } from 'react';
-import { logout, watchAuth } from '@/services/auth';
+import { watchAuth } from '@/services/auth';
 import { useAuthStore } from '@/store/use-auth-store';
 import { getRealtimeOnce, setRealtime } from '@/services/firebase';
 import { firebasePaths } from '@/constants/firebase-paths';
@@ -36,15 +36,6 @@ export function useAuthSession() {
     setLoading(true);
 
     void (async () => {
-      try {
-        // Force a fresh credential entry on every cold app open instead of restoring a persisted Firebase session.
-        await logout();
-      } catch {
-        // If there is no active session to clear, continue into the normal auth listener flow.
-      }
-
-      if (cancelled) return;
-
       unsub = watchAuth((nextUser) => {
         const safeUser = nextUser && !nextUser.isAnonymous ? nextUser : null;
         setUser(safeUser);
@@ -53,7 +44,7 @@ export function useAuthSession() {
           setAuthProfile(null);
           setAuthRole('farmer');
           setRole('farmer');
-          setProfile({ name: '', email: '', phone: '', farmName: '', location: '', role: 'farmer' });
+          setProfile({ name: '', email: '', phone: '', farmName: '', location: '', farmArea: '', farmDistrict: '', role: 'farmer' });
           setInitialized(true);
           setLoading(false);
           return;
@@ -70,6 +61,8 @@ export function useAuthSession() {
               phone: profile?.phone ?? '',
               farmName: profile?.farmName ?? '',
               location: profile?.location ?? '',
+              farmArea: profile?.farmArea ?? profile?.farmVillage ?? profile?.location ?? '',
+              farmDistrict: profile?.farmDistrict ?? '',
               role,
               theme,
             };
@@ -81,6 +74,8 @@ export function useAuthSession() {
             setThemeMode(theme);
             setAuthProfile(mergedProfile);
             setProfile(mergedProfile);
+            await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/sessionOnline`, true);
+            await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/sessionLastSeen`, Math.floor(Date.now() / 1000));
             await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/lastLogin`, Math.floor(Date.now() / 1000));
           } catch {
             if (cancelled) return;
@@ -92,6 +87,8 @@ export function useAuthSession() {
               phone: '',
               farmName: '',
               location: '',
+              farmArea: '',
+              farmDistrict: '',
               role: fallbackRole,
               theme: 'system',
             };

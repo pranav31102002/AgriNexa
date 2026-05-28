@@ -1,15 +1,17 @@
 import { AdminSearchInput, AdminSectionHeader, DetailRow, EmptyState, FilterChip, GlassCard, InlineStatBadges, StatusBadge, useAdminTheme } from '@/components/admin/panel';
 import { AdminMobileShell } from '@/components/admin/shell';
+import { useAdminApprovals } from '@/hooks/useAdminApprovals';
 import { useAdminFarmers } from '@/hooks/useAdminFarmers';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 export default function AdminFarmersScreen() {
   const { palette } = useAdminTheme();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const { data, toggleActive, isSavingActive } = useAdminFarmers(search);
+  const { data, toggleActive, isSavingActive, dataHealth } = useAdminFarmers(search);
+  const { approvals, requestApproval, requestingApproval, executeApproval, executingApproval } = useAdminApprovals();
 
   const filtered = (data ?? []).filter((farmer) => {
     if (statusFilter !== 'all' && farmer.status !== statusFilter) return false;
@@ -17,7 +19,7 @@ export default function AdminFarmersScreen() {
   });
 
   return (
-    <AdminMobileShell title="Farmer Management" subtitle="Search, filter, and review farmer accounts without altering the farmer UI.">
+    <AdminMobileShell title="Farmer Management" subtitle="Search, filter, and review farmer accounts without altering the farmer UI." dataHealth={dataHealth}>
       <AdminSectionHeader title="Directory" subtitle="Compact admin cards for farmer accounts, farm linkage, and device visibility." />
 
       <GlassCard>
@@ -75,10 +77,74 @@ export default function AdminFarmersScreen() {
               className="rounded-full px-4 py-3"
               style={{ backgroundColor: farmer.active ? '#3A171A' : '#163A29' }}
               onPress={() => {
-                void toggleActive({ uid: farmer.uid, active: !farmer.active, previousActive: farmer.active });
+                if (!farmer.active) {
+                  Alert.alert('Enable Farmer Account', `Enable access for ${farmer.name}?`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Enable',
+                      onPress: () => {
+                        void toggleActive({ uid: farmer.uid, active: true, previousActive: farmer.active });
+                      },
+                    },
+                  ]);
+                  return;
+                }
+
+                const pendingDisableApproval = approvals.find(
+                  (approval) =>
+                    approval.status === 'pending' &&
+                    approval.actionType === 'DISABLE_FARMER_ACCOUNT' &&
+                    approval.targetId === farmer.uid
+                );
+
+                if (!pendingDisableApproval) {
+                  Alert.alert('Request Disable Approval', `Request approval to disable ${farmer.name}?`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Request',
+                      onPress: () => {
+                        void requestApproval({
+                          actionType: 'DISABLE_FARMER_ACCOUNT',
+                          targetId: farmer.uid,
+                          summary: `Disable farmer account for ${farmer.name}.`,
+                        });
+                      },
+                    },
+                  ]);
+                  return;
+                }
+
+                Alert.alert(
+                  'Approve & Disable',
+                  `Pending approval exists. Disable access for ${farmer.name} now?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Disable',
+                      style: 'destructive',
+                      onPress: () => {
+                        void executeApproval({
+                          approval: pendingDisableApproval,
+                          executor: async () => toggleActive({ uid: farmer.uid, active: false, previousActive: farmer.active }),
+                        });
+                      },
+                    },
+                  ]
+                );
               }}
-              disabled={isSavingActive}>
-              <Text className="text-xs font-bold text-white">{farmer.active ? 'Disable' : 'Enable'}</Text>
+              disabled={isSavingActive || requestingApproval || executingApproval}>
+              <Text className="text-xs font-bold text-white">
+                {farmer.active
+                  ? approvals.some(
+                        (approval) =>
+                          approval.status === 'pending' &&
+                          approval.actionType === 'DISABLE_FARMER_ACCOUNT' &&
+                          approval.targetId === farmer.uid
+                      )
+                    ? 'Approve Disable'
+                    : 'Request Disable'
+                  : 'Enable'}
+              </Text>
             </Pressable>
           </View>
         </GlassCard>

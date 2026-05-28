@@ -36,6 +36,7 @@ export type AdminFarmerRow = {
 
 export type AdminCommandSummary = {
   totalFarmers: number;
+  loggedInFarmers: number;
   totalFarms: number;
   totalViewers: number;
   totalAdmins: number;
@@ -69,6 +70,37 @@ export type AdminAnalyticsPayload = {
     score: number;
     issue: string;
   }>;
+  insightSummary: string;
+  weeklyDeltas: {
+    alertsPct: number;
+    irrigationPct: number;
+    scansPct: number;
+  };
+  actionQueue: string[];
+  recentActivity: Array<{
+    id: string;
+    label: string;
+    timestamp: number;
+    severity: 'info' | 'warning' | 'critical';
+  }>;
+  incidentOps: {
+    mttaMinutes: number;
+    mttrMinutes: number;
+    slaCompliancePct: number;
+    escalationFunnel: {
+      open: number;
+      acknowledged: number;
+      escalated: number;
+      resolved: number;
+    };
+    escalationLevels: {
+      l0: number;
+      l1: number;
+      l2: number;
+      l3: number;
+    };
+    slaComplianceTrend: AdminTrendPoint[];
+  };
 };
 
 export type AdminReportsPayload = {
@@ -98,5 +130,30 @@ export type AdminDashboardPayload = {
   farms: FarmStatus[];
   farmers: AdminFarmerRow[];
   summary: AdminCommandSummary;
+};
+
+export type HighRiskActionType = 'EMERGENCY_STOP_ALL' | 'DISABLE_FARMER_ACCOUNT';
+
+export type HighRiskApproval = {
+  id: string;
+  actionType: HighRiskActionType;
+  targetId: string;
+  summary: string;
+  status: 'pending' | 'executed' | 'rejected';
+  requestedByUid: string;
+  requestedByName: string;
+  approvedByUid: string;
+  approvedByName: string;
+  rejectedByUid: string;
+  rejectedByName: string;
+  rejectReason: string;
+  delegatedToUid: string;
+  delegatedToName: string;
+  createdAt: number;
+  approvedAt: number;
+  rejectedAt: number;
+  delegatedAt: number;
+  executedAt: number;
+  parentApprovalId: string;
 };
 

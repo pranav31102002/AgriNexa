@@ -30,6 +30,8 @@ export function useAdminFarmers(search = '') {
         actionType: 'ADMIN_ACCOUNT_STATUS_UPDATE',
         oldValue: previousActive,
         newValue: active,
+        context: 'admin-farmers',
+        targetId: uid,
       });
     },
     onSuccess: () => {

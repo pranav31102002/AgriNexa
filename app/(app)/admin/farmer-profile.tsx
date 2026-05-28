@@ -7,11 +7,11 @@ import { Text, View } from 'react-native';
 export default function AdminFarmerProfileScreen() {
   const { palette } = useAdminTheme();
   const { uid } = useLocalSearchParams<{ uid?: string }>();
-  const { data } = useAdminSnapshot();
+  const { data, dataHealth } = useAdminSnapshot();
   const farmer = data?.dashboard.farmers.find((row) => row.uid === uid);
 
   return (
-    <AdminMobileShell title="Farmer Profile" subtitle="Selected farmer details from the admin directory without changing farmer-side screens.">
+    <AdminMobileShell title="Farmer Profile" subtitle="Selected farmer details from the admin directory without changing farmer-side screens." dataHealth={dataHealth}>
       <AdminSectionHeader
         title="Profile Overview"
         subtitle="Review the selected farmer account details and current status."

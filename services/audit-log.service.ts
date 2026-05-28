@@ -7,8 +7,11 @@ export async function logUserAction(params: {
   actionType: string;
   oldValue: unknown;
   newValue: unknown;
+  context?: string;
+  targetId?: string;
 }) {
   const user = useAuthStore.getState().user;
+  const role = useAuthStore.getState().role;
   const profile = useAppStore.getState().profile;
   const now = Date.now();
   const uid = user?.uid ?? 'unknown_user';
@@ -17,7 +20,10 @@ export async function logUserAction(params: {
   await setRealtime(`${firebasePaths.logsActions}/${now}_${uid}`, {
     uid,
     userName,
+    role,
     actionType: params.actionType,
+    context: params.context ?? 'general',
+    targetId: params.targetId ?? null,
     timestamp: Math.floor(now / 1000),
     oldValue: params.oldValue,
     newValue: params.newValue,

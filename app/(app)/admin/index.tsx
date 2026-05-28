@@ -9,7 +9,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useAppStore } from '@/store/use-app-store';
 
 export default function AdminDashboardScreen() {
-  const { data } = useAdminDashboard();
+  const { data, dataHealth } = useAdminDashboard();
   const { data: analytics } = useAdminAnalytics();
   const language = useAppStore((state) => state.language);
   const { palette, criticalBorder } = useAdminTheme();
@@ -27,11 +27,12 @@ export default function AdminDashboardScreen() {
         : `${global?.farmsOnline ?? 0} farms online, ${summary?.activeAlerts ?? 0} alerts active, and ${summary?.todayDiseaseScans ?? 0} disease scans today.`;
 
   return (
-    <AdminMobileShell title="Command Center" subtitle="Premium mobile operations view for your full AgriNexa network.">
+    <AdminMobileShell title="Command Center" subtitle="Premium mobile operations view for your full AgriNexa network." dataHealth={dataHealth}>
       <AdminSectionHeader title="Platform Snapshot" subtitle="Fast decisions, live signals, and shared auth-safe routing." />
 
       <View className="flex-row flex-wrap justify-between gap-y-3">
         <AdminMetricCard label="Total Farmers" value={`${summary?.totalFarmers ?? 0}`} icon="account-group" />
+        <AdminMetricCard label="Farmers Online" value={`${summary?.loggedInFarmers ?? 0}`} icon="account-check-outline" tone="#1B9C5A" />
         <AdminMetricCard label="Total Farms" value={`${summary?.totalFarms ?? 0}`} icon="sprout" />
         <AdminMetricCard label="Viewers" value={`${summary?.totalViewers ?? 0}`} icon="account-eye" tone="#E8A200" />
         <AdminMetricCard label="Active Alerts" value={`${summary?.activeAlerts ?? 0}`} icon="alert-circle-outline" tone="#F87171" />
@@ -81,6 +82,7 @@ export default function AdminDashboardScreen() {
             { label: 'Farmers', icon: 'account-group-outline', href: '/(app)/admin/farmers', tone: '#1B9C5A' },
             { label: 'Live Farms', icon: 'access-point', href: '/(app)/admin/live-farms', tone: '#38BDF8' },
             { label: 'Alerts', icon: 'alert-outline', href: '/(app)/admin/alerts', tone: '#F59E0B' },
+            { label: 'Approvals', icon: 'shield-check-outline', href: '/(app)/admin/approvals', tone: '#6366F1' },
             { label: 'Reports', icon: 'file-chart-outline', href: '/(app)/admin/reports', tone: '#A78BFA' },
           ].map((item) => (
             <Pressable

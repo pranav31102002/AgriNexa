@@ -24,4 +24,5 @@ export const firebasePaths = {
   adminGlobalAnalytics: 'SmartKisanSathi/admin/globalAnalytics',
   adminAlerts: 'SmartKisanSathi/admin/alerts',
   adminFarmsIndex: 'SmartKisanSathi/admin/farmsIndex',
+  adminApprovals: 'SmartKisanSathi/admin/approvals',
 } as const;

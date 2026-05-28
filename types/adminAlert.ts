@@ -21,5 +21,11 @@ export type AdminAlert = {
   details: string;
   userUid: string;
   farmId: string;
+  acknowledgedAt: number;
+  incidentStatus: 'open' | 'acknowledged' | 'escalated' | 'resolved';
+  escalationLevel: 0 | 1 | 2 | 3;
+  slaDeadline: number;
+  slaBreached: boolean;
+  resolvedAt: number;
 };
 

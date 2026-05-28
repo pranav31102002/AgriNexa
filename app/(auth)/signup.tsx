@@ -21,6 +21,8 @@ const schema = z
     phone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
     farmName: z.string().min(1, 'Farm name is required'),
     location: z.string().min(1, 'Location is required'),
+    farmArea: z.string().min(2, 'Farm area is required'),
+    farmDistrict: z.string().min(2, 'Farm district is required'),
     password: z.string().min(6, 'Password must be at least 6 characters'),
     confirmPassword: z.string().min(6, 'Confirm password is required'),
   })
@@ -47,6 +49,8 @@ export default function SignUpScreen() {
       phone: '',
       farmName: '',
       location: '',
+      farmArea: '',
+      farmDistrict: '',
       password: '',
       confirmPassword: '',
     },
@@ -62,6 +66,8 @@ export default function SignUpScreen() {
         phone: v.phone,
         farmName: v.farmName,
         location: v.location,
+        farmArea: v.farmArea,
+        farmDistrict: v.farmDistrict,
         password: v.password,
         preferredLanguage: language.toUpperCase(),
         theme: themeMode,
@@ -74,6 +80,8 @@ export default function SignUpScreen() {
         phone: values.phone,
         farmName: values.farmName,
         location: values.location,
+        farmArea: values.farmArea,
+        farmDistrict: values.farmDistrict,
       });
       await logout();
       router.replace('/(auth)/login' as never);
@@ -159,6 +167,8 @@ export default function SignUpScreen() {
           <Field name="phone" placeholder={t('phone')} keyboardType="phone-pad" />
           <Field name="farmName" placeholder={t('farmName')} />
           <Field name="location" placeholder={t('location')} />
+          <Field name="farmArea" placeholder={t('farmArea')} />
+          <Field name="farmDistrict" placeholder={t('farmDistrict')} />
           <Field
             name="password"
             placeholder={`${t('password')} *`}

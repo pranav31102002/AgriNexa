@@ -26,6 +26,8 @@ export default function AdminAccountScreen() {
       actionType: 'THEME_CHANGE',
       oldValue: themeMode,
       newValue: nextTheme,
+      context: 'admin-account',
+      targetId: user.uid,
     });
 
     setThemeMode(nextTheme);
