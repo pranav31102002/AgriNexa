@@ -3,6 +3,7 @@ import { Lang } from '@/types';
 import { RouteState } from '@/types/farm';
 import { getRecommendationByClass } from '@/services/ai/recommendation-engine';
 import { normalizeDiseaseClass } from '@/utils/normalizeDiseaseClass';
+import type { CropPlannerSummary } from '@/types/crop';
 
 export type DashboardSpeechData = {
   temperature: number;
@@ -17,6 +18,7 @@ export type DashboardSpeechData = {
     shouldDelayIrrigation: boolean;
     rainExpected: boolean;
   };
+  cropSummary?: CropPlannerSummary;
 };
 
 export type IrrigationSpeechData = {
@@ -156,6 +158,57 @@ function buildWeatherSentence(
     : `Current temperature is ${temp} degrees. Rain is not expected soon. Irrigation can continue if needed.`;
 }
 
+
+function normalizeCropI18nKey(value: string) {
+  return value
+    .trim()
+    .replace(/&/g, 'and')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .replace(/s+(w)/g, (_, letter: string) => letter.toUpperCase())
+    .replace(/^w/, (letter) => letter.toLowerCase());
+}
+
+function translateCropName(lang: Lang, key: string, fallback: string) {
+  return i18n.t(`cropLifecycle.cropNames.${key}`, { lng: lang, defaultValue: fallback });
+}
+
+function translateStageName(lang: Lang, fallback: string) {
+  return i18n.t(`cropLifecycle.stageNames.${normalizeCropI18nKey(fallback)}`, { lng: lang, defaultValue: fallback });
+}
+
+function translateActionTitle(lang: Lang, fallback: string | undefined) {
+  if (!fallback) return '';
+  return i18n.t(`cropLifecycle.actionTitles.${normalizeCropI18nKey(fallback)}`, { lng: lang, defaultValue: fallback });
+}
+
+function buildCropSentence(lang: Lang, locale: string, summary?: CropPlannerSummary) {
+  const cropState = summary?.activeCrop;
+  if (!cropState) return '';
+
+  const age = formatLocalizedNumber(cropState.ageDays, locale, 0);
+  const due = cropState.nextActionDueInDays == null ? '' : formatLocalizedNumber(cropState.nextActionDueInDays, locale, 0);
+  const cropName = translateCropName(lang, cropState.crop.templateKey, cropState.crop.cropName);
+  const stage = translateStageName(lang, cropState.currentStage.name);
+  const action = translateActionTitle(lang, cropState.nextAction?.title);
+
+  if (lang === 'hi') {
+    return cropState.nextActionDueInDays == null || !action
+      ? `आपकी ${cropName} की फसल ${age} दिन पुरानी है। वर्तमान अवस्था ${stage} है।`
+      : `आपकी ${cropName} की फसल ${age} दिन पुरानी है। वर्तमान अवस्था ${stage} है। ${action} की सलाह अगले ${due} दिनों में दी जाती है।`;
+  }
+
+  if (lang === 'mr') {
+    return cropState.nextActionDueInDays == null || !action
+      ? `तुमची ${cropName} पिके ${age} दिवसांची झाली आहेत. सध्याची अवस्था ${stage} आहे.`
+      : `तुमची ${cropName} पिके ${age} दिवसांची झाली आहेत. सध्याची अवस्था ${stage} आहे. ${action} पुढील ${due} दिवसांत शिफारसीय आहे.`;
+  }
+
+  return cropState.nextActionDueInDays == null || !action
+    ? `Your ${cropName} crop is ${age} days old. Current stage is ${stage}.`
+    : `Your ${cropName} crop is ${age} days old. Current stage is ${stage}. ${action} is recommended within ${due} days.`;
+}
+
 function routeToSpeech(route: RouteState, labels: SpeechLabels) {
   if (route === 'WATER') return labels.routeWater;
   if (route === 'PESTICIDE') return labels.routePesticide;
@@ -272,8 +325,11 @@ function buildEnglishDashboardSpeech(locale: string, data: DashboardSpeechData):
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
   const weatherSentence = buildWeatherSentence('en', locale, data.weatherSummary);
+  const cropSentence = buildCropSentence('en', locale, data.cropSummary);
 
-  return `${labels.dashboardTitle}. ${labels.temperature} is ${temp} ${labels.degreeC}. ${labels.humidity} is ${humidity} ${labels.percent}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.waterMotor} is ${pump}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${route}. ${labels.autoIrrigation} is ${auto}. ${weatherSentence}`;
+  return normalizeSpeech(
+    `${labels.dashboardTitle}. ${labels.temperature} is ${temp} ${labels.degreeC}. ${labels.humidity} is ${humidity} ${labels.percent}. ${labels.soilMoisture} is ${soil} ${labels.percent}. ${labels.waterMotor} is ${pump}. ${labels.tankLevel} is ${tank} ${labels.percent}. ${route}. ${labels.autoIrrigation} is ${auto}. ${weatherSentence} ${cropSentence}`
+  );
 }
 
 function buildHindiDashboardSpeech(locale: string, data: DashboardSpeechData): string {
@@ -286,9 +342,10 @@ function buildHindiDashboardSpeech(locale: string, data: DashboardSpeechData): s
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
   const weatherSentence = buildWeatherSentence('hi', locale, data.weatherSummary);
+  const cropSentence = buildCropSentence('hi', locale, data.cropSummary);
 
   const text = normalizeSpeech(
-    `खेत की वर्तमान स्थिति यह है। ${labels.temperature} ${temp} ${labels.degreeC} है। ${labels.humidity} ${humidity} ${labels.percent} है। ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.waterMotor} ${pump} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${route}। ${labels.autoIrrigation} ${auto} है। ${weatherSentence}`
+    `खेत की वर्तमान स्थिति यह है। ${labels.temperature} ${temp} ${labels.degreeC} है। ${labels.humidity} ${humidity} ${labels.percent} है। ${labels.soilMoisture} ${soil} ${labels.percent} है। ${labels.waterMotor} ${pump} है। ${labels.tankLevel} ${tank} ${labels.percent} है। ${route}। ${labels.autoIrrigation} ${auto} है। ${weatherSentence} ${cropSentence}`
   );
   if (__DEV__) {
     // eslint-disable-next-line no-console
@@ -307,9 +364,10 @@ function buildMarathiDashboardSpeech(locale: string, data: DashboardSpeechData):
   const auto = boolToText(data.autoMode, labels);
   const route = routeToSpeech(data.routeState, labels);
   const weatherSentence = buildWeatherSentence('mr', locale, data.weatherSummary);
+  const cropSentence = buildCropSentence('mr', locale, data.cropSummary);
 
   const text = normalizeSpeech(
-    `शेताची सद्यस्थिती अशी आहे. ${labels.temperature} ${temp} ${labels.degreeC} आहे. ${labels.humidity} ${humidity} ${labels.percent} आहे. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${route}। ${labels.autoIrrigation} ${auto} आहे. ${weatherSentence}`
+    `शेताची सद्यस्थिती अशी आहे. ${labels.temperature} ${temp} ${labels.degreeC} आहे. ${labels.humidity} ${humidity} ${labels.percent} आहे. ${labels.soilMoisture} ${soil} ${labels.percent} आहे. ${labels.waterMotor} ${pump} आहे. ${labels.tankLevel} ${tank} ${labels.percent} आहे. ${route}। ${labels.autoIrrigation} ${auto} आहे. ${weatherSentence} ${cropSentence}`
   );
   if (__DEV__) {
     // eslint-disable-next-line no-console

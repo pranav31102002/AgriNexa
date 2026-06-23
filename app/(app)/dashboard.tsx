@@ -3,12 +3,14 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, Text, View } from 'react-native';
+import { ActiveCropCard } from '@/components/crop/ActiveCropCard';
 import { GlassCard, StatusBadge } from '@/components/ui/cards';
 import { ScreenContainer } from '@/components/ui/screen-container';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useFarmRealtime } from '@/hooks/use-farm-realtime';
 import { useDeviceStatus } from '@/hooks/use-device-status';
 import { useWeather } from '@/hooks/useWeather';
+import { useCropPlanner } from '@/hooks/useCropPlanner';
 import { speakDashboardSummary as speakDashboardSummaryTts, stopSpeech } from '@/services/speech.service';
 import { triggerAlertIfNeeded } from '@/services/alerts.service';
 import { useAppStore } from '@/store/use-app-store';
@@ -34,6 +36,7 @@ export default function DashboardScreen() {
   const { data, isLoading, isRefetching, isError, error } = useFarmRealtime();
   const { data: deviceStatus } = useDeviceStatus();
   const { data: weather } = useWeather();
+  const { summary: cropSummary } = useCropPlanner();
   const cachedPrediction = useAppStore((state) => state.cachedDiseasePrediction);
   const language = useAppStore((state) => state.language);
   const [now, setNow] = useState(new Date());
@@ -144,6 +147,7 @@ export default function DashboardScreen() {
               rainExpected: Boolean(weather.guidance.rainExpectedWithin6h),
             }
           : undefined,
+        cropSummary,
       },
       () => setIsSpeaking(false)
     );
@@ -208,6 +212,8 @@ export default function DashboardScreen() {
         <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>{farmHealth.score}/100</Text>
         <Text className="mt-1 text-xs font-semibold text-emerald-600">{translateFarmHealthLabel(farmHealth.label, t)}</Text>
       </GlassCard>
+
+      <ActiveCropCard cropStates={cropSummary.cropStates} />
 
       <GlassCard>
         <View className="flex-row items-start justify-between">
@@ -339,3 +345,4 @@ export default function DashboardScreen() {
     </ScreenContainer>
   );
 }
+

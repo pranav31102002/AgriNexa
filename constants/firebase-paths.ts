@@ -18,6 +18,10 @@ export const firebasePaths = {
   reportsDaily: 'SmartKisanSathi/reports/daily',
   reportsWeekly: 'SmartKisanSathi/reports/weekly',
   reportsMonthly: 'SmartKisanSathi/reports/monthly',
+  cropPlanner: 'SmartKisanSathi/cropPlanner',
+  cropTemplates: 'SmartKisanSathi/cropTemplates',
+  cropAlerts: 'SmartKisanSathi/cropAlerts',
+  userPreferences: 'SmartKisanSathi/userPreferences',
   userProfiles: 'SmartKisanSathi/userProfiles',
   logs: 'SmartKisanSathi/logs',
   logsActions: 'SmartKisanSathi/logs/actions',
@@ -26,3 +30,4 @@ export const firebasePaths = {
   adminFarmsIndex: 'SmartKisanSathi/admin/farmsIndex',
   adminApprovals: 'SmartKisanSathi/admin/approvals',
 } as const;
+

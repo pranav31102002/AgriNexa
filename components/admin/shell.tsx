@@ -27,15 +27,18 @@ export function AdminMobileShell({
   title,
   subtitle,
   children,
+  dataHealth: _dataHealth,
 }: {
   title: string;
   subtitle: string;
   children: ReactNode;
+  dataHealth?: unknown;
 }) {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { palette, headerGradient, headerBadgeBg, headerBadgeText, profilePanelBg, navBackground, navActiveBackground, navActiveIcon, navActiveText } =
     useAdminTheme();
+  const headerGradientColors = [headerGradient[0] ?? '#0F766E', headerGradient[1] ?? '#0EA5E9', ...headerGradient.slice(2)] as const;
   const profile = useAppStore((state) => state.profile);
   const initials = (profile.name || 'Admin')
     .split(' ')
@@ -55,7 +58,7 @@ export function AdminMobileShell({
             paddingBottom: Math.max(insets.bottom + 98, 118),
           }}>
           <LinearGradient
-            colors={headerGradient}
+            colors={headerGradientColors}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={{

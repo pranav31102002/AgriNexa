@@ -1,4 +1,4 @@
-﻿export type Lang = 'en' | 'hi' | 'mr';
+export type Lang = 'en' | 'hi' | 'mr';
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type UserRole = 'admin' | 'farmer' | 'viewer';
 
@@ -85,3 +85,17 @@ export type {
   AdminReportsPayload,
 } from '@/types/admin';
 export type { FarmStatus } from '@/types/farmStatus';
+
+export type {
+  CropAlert,
+  CropAlertPriority,
+  CropAlertType,
+  CropComputedState,
+  CropPlannerItem,
+  CropPlannerSummary,
+  CropScheduleItem,
+  CropStageRange,
+  CropStatus,
+  CropTemplate,
+  CropTemplateKey,
+} from '@/types/crop';

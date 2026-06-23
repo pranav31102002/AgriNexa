@@ -86,6 +86,7 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen name="reports" options={{ href: null }} />
+      <Tabs.Screen name="crop-planner" options={{ href: null }} />
       <Tabs.Screen name="settings" options={{ href: null }} />
       <Tabs.Screen name="validation-report" options={{ href: null }} />
       <Tabs.Screen name="system-flow" options={{ href: null }} />

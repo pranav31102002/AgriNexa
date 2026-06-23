@@ -4,6 +4,7 @@ import { useAppTheme } from '@/hooks/use-app-theme';
 import { useDeviceStatus } from '@/hooks/use-device-status';
 import { useFarmAnalytics } from '@/hooks/useFarmAnalytics';
 import { useWeather } from '@/hooks/useWeather';
+import { useCropPlanner } from '@/hooks/useCropPlanner';
 import { speakAnalyticsSummary, stopSpeech } from '@/services/speech.service';
 import { AnalyticsSummary } from '@/types';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -85,6 +86,7 @@ export default function AnalyticsScreen() {
   const deviceStatus = useDeviceStatus();
   const { data } = useFarmAnalytics();
   const { data: weather } = useWeather();
+  const { summary: cropSummary } = useCropPlanner();
   const [speaking, setSpeaking] = useState(false);
 
   const summary = data ?? emptySummary;
@@ -123,6 +125,13 @@ export default function AnalyticsScreen() {
     ],
     [kpi, summary.sparklines, t]
   );
+
+  const cropLifecycleKpis = [
+    { label: 'Active Crops', value: cropSummary.activeCrops, icon: 'sprout', tone: '#10B981' },
+    { label: 'Upcoming Sprays', value: cropSummary.upcomingSprays, icon: 'spray-bottle', tone: '#F97316' },
+    { label: 'Upcoming Harvests', value: cropSummary.upcomingHarvests, icon: 'basket-outline', tone: '#0EA5E9' },
+    { label: 'Disease Risk Crops', value: cropSummary.diseaseRiskCrops, icon: 'alert-octagon-outline', tone: '#EF4444' },
+  ] as const;
 
   const heatMax = Math.max(
     ...summary.heatmap.flatMap((row) => row.values),
@@ -223,6 +232,33 @@ export default function AnalyticsScreen() {
           </View>
         ))}
       </View>
+
+      <GlassCard>
+        <Text className="text-sm font-bold text-slate-800" style={txt}>
+          Crop Lifecycle Intelligence
+        </Text>
+        <Text className="mt-1 text-[11px] text-slate-500" style={muted}>
+          Active crop planning, spray windows, harvests, and disease-risk signals.
+        </Text>
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          {cropLifecycleKpis.map((item) => (
+            <View
+              key={item.label}
+              className="min-w-[47%] flex-1 rounded-2xl border p-3"
+              style={{ borderColor: isDark ? '#334155' : '#E2E8F0', backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }}>
+              <View className="flex-row items-center justify-between">
+                <Text className="text-[11px] font-semibold uppercase text-slate-500" style={muted}>
+                  {item.label}
+                </Text>
+                <MaterialCommunityIcons name={item.icon} size={17} color={item.tone} />
+              </View>
+              <Text className="mt-2 text-2xl font-black" style={txt}>
+                {item.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </GlassCard>
 
       <GlassCard>
         <View className="flex-row items-center justify-between">

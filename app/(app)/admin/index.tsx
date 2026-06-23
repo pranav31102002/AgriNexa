@@ -2,6 +2,7 @@ import { AdminMetricCard, AdminSectionHeader, DetailRow, GlassCard, InfoTile, In
 import { AdminMobileShell } from '@/components/admin/shell';
 import { useAdminAnalytics } from '@/hooks/useAdminAnalytics';
 import { useAdminDashboard } from '@/hooks/useAdminDashboard';
+import { useCropPlanner } from '@/hooks/useCropPlanner';
 import { speakCustomSummary } from '@/services/speech.service';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -11,6 +12,7 @@ import { useAppStore } from '@/store/use-app-store';
 export default function AdminDashboardScreen() {
   const { data, dataHealth } = useAdminDashboard();
   const { data: analytics } = useAdminAnalytics();
+  const { summary: cropSummary } = useCropPlanner();
   const language = useAppStore((state) => state.language);
   const { palette, criticalBorder } = useAdminTheme();
 
@@ -46,6 +48,39 @@ export default function AdminDashboardScreen() {
           tone="#A78BFA"
         />
       </View>
+
+      <GlassCard>
+        <AdminSectionHeader title="Crop Lifecycle Intelligence" subtitle="Active crop load, upcoming alerts, harvest forecast, and disease-risk watchlist." />
+        <View className="mt-4 flex-row flex-wrap gap-3">
+          <InfoTile label="Active Crops" value={`${cropSummary.activeCrops}`} tone={palette.accent} />
+          <InfoTile label="Upcoming Alerts" value={`${cropSummary.upcomingAlerts.length}`} tone={palette.info} />
+          <InfoTile label="Harvest Forecast" value={`${cropSummary.upcomingHarvests}`} tone="#0EA5E9" />
+          <InfoTile label="Disease Risk Crops" value={`${cropSummary.diseaseRiskCrops}`} tone="#F87171" />
+        </View>
+        {cropSummary.upcomingAlerts.length ? (
+          <View className="mt-4 gap-2">
+            {cropSummary.upcomingAlerts.slice(0, 3).map((alert) => (
+              <View
+                key={alert.id}
+                className="rounded-[18px] border p-3"
+                style={{ borderColor: palette.border, backgroundColor: palette.bgSecondary }}>
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text className="flex-1 text-xs font-black" style={{ color: palette.text }}>
+                    {alert.cropName}: {alert.title}
+                  </Text>
+                  <StatusBadge
+                    text={alert.priority.toUpperCase()}
+                    tone={alert.priority === 'high' ? 'error' : alert.priority === 'medium' ? 'warn' : 'info'}
+                  />
+                </View>
+                <Text className="mt-1 text-xs" style={{ color: palette.muted }}>
+                  {alert.message}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </GlassCard>
 
       <GlassCard>
         <View className="flex-row items-start justify-between gap-3">

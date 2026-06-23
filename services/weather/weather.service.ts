@@ -67,6 +67,7 @@ export type WeatherPayload = {
   current: WeatherCurrent;
   forecast: WeatherForecast;
   guidance: WeatherGuidance;
+  unavailable?: boolean;
 };
 
 function asNumber(value: unknown, fallback = 0) {
@@ -136,7 +137,7 @@ export function computeSprayAdvice({
   windSpeed: number;
   windThreshold?: number;
 }) {
-  const windRisk = windSpeed >= windThreshold ? 'HIGH' : 'LOW';
+  const windRisk: WeatherGuidance['windRisk'] = windSpeed >= windThreshold ? 'HIGH' : 'LOW';
   const spraySafe = rainRisk !== 'HIGH' && windRisk === 'LOW';
   const sprayAdvice = spraySafe ? 'Spray conditions look safe right now.' : 'Not safe for spray due to rain or wind risk.';
   return {
