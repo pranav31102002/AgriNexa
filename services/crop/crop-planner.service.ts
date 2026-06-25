@@ -31,13 +31,21 @@ function normalizeCrop(id: string, raw: Partial<CropPlannerItem>): CropPlannerIt
   };
 }
 
+function userCropPlannerPath(uid: string) {
+  return `${firebasePaths.cropPlanner}/${uid}`;
+}
+
+function userCropAlertsPath(uid: string) {
+  return `${firebasePaths.cropAlerts}/${uid}`;
+}
+
 export async function seedCropTemplates() {
   const templates = getCropTemplateOptions();
   await Promise.all(templates.map((template) => setRealtime(`${firebasePaths.cropTemplates}/${template.key}`, template)));
 }
 
-export async function fetchCropPlanner(): Promise<CropPlannerItem[]> {
-  const raw = await getRealtimeOnce<CropMap>(firebasePaths.cropPlanner);
+export async function fetchCropPlanner(uid: string): Promise<CropPlannerItem[]> {
+  const raw = await getRealtimeOnce<CropMap>(userCropPlannerPath(uid));
   return Object.entries(raw ?? {})
     .filter(([, value]) => Boolean(value))
     .map(([id, value]) => normalizeCrop(id, value ?? {}))
@@ -45,10 +53,11 @@ export async function fetchCropPlanner(): Promise<CropPlannerItem[]> {
 }
 
 export async function saveCropPlannerItem(
+  uid: string,
   input: Omit<Partial<CropPlannerItem>, 'id'> & { id?: string; cropName: string; plantDate: string; templateKey?: CropTemplateKey }
 ) {
   const id = input.id || `crop_${Date.now()}`;
-  const existing = input.id ? await getRealtimeOnce<CropPlannerItem>(`${firebasePaths.cropPlanner}/${input.id}`) : null;
+  const existing = input.id ? await getRealtimeOnce<CropPlannerItem>(`${userCropPlannerPath(uid)}/${input.id}`) : null;
   const crop = normalizeCrop(id, {
     ...existing,
     ...input,
@@ -56,23 +65,23 @@ export async function saveCropPlannerItem(
     updatedAt: nowSec(),
     createdAt: existing?.createdAt ?? nowSec(),
   });
-  await setRealtime(`${firebasePaths.cropPlanner}/${id}`, crop);
+  await setRealtime(`${userCropPlannerPath(uid)}/${id}`, crop);
   void seedCropTemplates();
   return crop;
 }
 
-export async function deleteCropPlannerItem(id: string) {
-  await setRealtime(`${firebasePaths.cropPlanner}/${id}`, null);
+export async function deleteCropPlannerItem(uid: string, id: string) {
+  await setRealtime(`${userCropPlannerPath(uid)}/${id}`, null);
 }
 
-export async function completeCropAlert(alertId: string) {
-  await setRealtime(`${firebasePaths.cropAlerts}/${alertId}/completed`, true);
+export async function completeCropAlert(uid: string, alertId: string) {
+  await setRealtime(`${userCropAlertsPath(uid)}/${alertId}/completed`, true);
 }
 
-export async function syncCropAlerts(alerts: CropAlert[]) {
+export async function syncCropAlerts(uid: string, alerts: CropAlert[]) {
   await Promise.all(
     alerts.map(async (alert) => {
-      await setRealtime(`${firebasePaths.cropAlerts}/${alert.id}`, alert);
+      await setRealtime(`${userCropAlertsPath(uid)}/${alert.id}`, alert);
       if (alert.completed || alert.dueInDays > 1) return;
       await triggerAlertIfNeeded({
         key: `crop_${alert.id}`,

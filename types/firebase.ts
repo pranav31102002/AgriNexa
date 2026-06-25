@@ -1,25 +1,51 @@
-﻿import { DailyReport, MonthlyReport, WeeklyReport } from '@/services/report/report-calculator';
+import { DailyReport, MonthlyReport, WeeklyReport } from '@/services/report/report-calculator';
 
 export type FirebaseDeviceStatus = {
   online?: boolean;
+  connected?: boolean;
+  status?: string;
   connection?: string;
   firmware?: string;
-  lastSeen?: number;
+  lastSeen?: number | string;
+  timestamp?: number | string;
+  updatedAt?: number | string;
+  lastSync?: number | string;
 };
 
 export type FirebaseSensorsCurrent = {
-  temperature?: number;
-  humidity?: number;
-  soil1?: number;
-  soil2?: number;
-  avgSoil?: number;
-  tankLevel?: number;
-  pumpWater?: boolean;
-  pumpSpray?: boolean;
-  waterValve?: boolean;
-  commonMotor?: boolean;
+  temperature?: number | string;
+  temp?: number | string;
+  temperatureC?: number | string;
+  dhtTemp?: number | string;
+  airTemperature?: number | string;
+  humidity?: number | string;
+  hum?: number | string;
+  humidityPct?: number | string;
+  dhtHumidity?: number | string;
+  soil1?: number | string;
+  soil2?: number | string;
+  soilMoisture1?: number | string;
+  soilMoisture2?: number | string;
+  avgSoil?: number | string;
+  avgSoilMoisture?: number | string;
+  soilAvg?: number | string;
+  tankLevel?: number | string;
+  tankWaterLevel?: number | string;
+  waterLevel?: number | string;
+  pumpWater?: boolean | number | string;
+  waterPump?: boolean | number | string;
+  waterPumpStatus?: boolean | number | string;
+  pumpSpray?: boolean | number | string;
+  pesticidePump?: boolean | number | string;
+  pesticidePumpStatus?: boolean | number | string;
+  waterValve?: boolean | number | string;
+  commonMotor?: boolean | number | string;
   routeMode?: string;
-  timestamp?: number;
+  routeState?: string;
+  timestamp?: number | string;
+  ts?: number | string;
+  updatedAt?: number | string;
+  lastSync?: number | string;
 };
 
 export type FirebaseControls = {

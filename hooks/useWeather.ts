@@ -6,9 +6,7 @@ import { getRealtimeOnce, setRealtime } from '@/services/firebase';
 import {
   FarmLocation,
   WeatherPayload,
-  cacheWeatherToFirebase,
   fetchWeather,
-  readWeatherFromFirebase,
 } from '@/services/weather/weather.service';
 import { useAppStore } from '@/store/use-app-store';
 import { useAuthStore } from '@/store/use-auth-store';
@@ -39,9 +37,28 @@ function toFarmLocation(value: unknown, villageFallback = 'Farm Location'): Farm
   };
 }
 
-async function readStoredLocation() {
+function storedLocationKey(uid?: string | null) {
+  return uid ? `${FARM_LOCATION_KEY}:${uid}` : FARM_LOCATION_KEY;
+}
+
+function weatherCacheKey(uid?: string | null, signature?: string) {
+  return uid && signature ? `${cacheKeys.weather}:${uid}:${signature}` : `${cacheKeys.weather}:guest`;
+}
+
+function normalizeLocationPart(value: unknown) {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+}
+
+function buildFarmLocationSignature(profile: Record<string, unknown>) {
+  const area = normalizeLocationPart(profile.farmArea || profile.farmVillage);
+  const district = normalizeLocationPart(profile.farmDistrict);
+  const location = normalizeLocationPart(profile.location);
+  return [area, district, location].filter(Boolean).join('|').toLowerCase();
+}
+
+async function readStoredLocationForUser(uid?: string | null) {
   try {
-    const raw = await AsyncStorage.getItem(FARM_LOCATION_KEY);
+    const raw = await AsyncStorage.getItem(storedLocationKey(uid));
     if (!raw) return null;
     return toFarmLocation(JSON.parse(raw));
   } catch {
@@ -49,36 +66,51 @@ async function readStoredLocation() {
   }
 }
 
-async function saveStoredLocation(location: FarmLocation) {
+async function saveStoredLocation(location: FarmLocation, uid?: string | null) {
   try {
-    await AsyncStorage.setItem(FARM_LOCATION_KEY, JSON.stringify(location));
+    await AsyncStorage.setItem(storedLocationKey(uid), JSON.stringify(location));
   } catch {
     // no-op
   }
 }
 
-async function geocodeFarmArea(area: string, district?: string): Promise<FarmLocation | null> {
-  const query = district?.trim() ? `${area}, ${district}, India` : `${area}, India`;
+function resultMatchesFarm(
+  result: { name?: string; admin1?: string; admin2?: string; country?: string },
+  district?: string,
+  stateOrLocation?: string
+) {
+  const haystack = [result.name, result.admin1, result.admin2, result.country].map((value) => String(value ?? '').toLowerCase());
+  const required = [district, stateOrLocation]
+    .map((value) => normalizeLocationPart(value).toLowerCase())
+    .filter(Boolean);
+  if (!required.length) return true;
+  return required.some((part) => haystack.some((value) => value.includes(part)));
+}
+
+async function geocodeFarmArea(area: string, district?: string, stateOrLocation?: string): Promise<FarmLocation | null> {
   const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
-  url.searchParams.set('name', query);
-  url.searchParams.set('count', '1');
+  url.searchParams.set('name', area);
+  url.searchParams.set('count', '10');
   url.searchParams.set('language', 'en');
   url.searchParams.set('format', 'json');
 
   const response = await fetch(url.toString());
   if (!response.ok) return null;
   const json = (await response.json()) as {
-    results?: Array<{ name?: string; latitude?: number; longitude?: number; admin1?: string }>;
+    results?: Array<{ name?: string; latitude?: number; longitude?: number; admin1?: string; admin2?: string; country?: string }>;
   };
-  const top = json.results?.[0];
+  const results = json.results ?? [];
+  const top = results.find((item) => resultMatchesFarm(item, district, stateOrLocation)) ?? results[0];
   if (!top) return null;
   const latitude = Number(top.latitude);
   const longitude = Number(top.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const districtLabel = district?.trim();
+  const village = [String(top.name ?? area), districtLabel].filter(Boolean).join(', ');
   return {
     latitude,
     longitude,
-    village: String(top.name ?? area),
+    village,
   };
 }
 
@@ -87,9 +119,19 @@ async function readProfileLocation(uid?: string | null) {
   const profile = await getRealtimeOnce<Record<string, unknown>>(`${firebasePaths.userProfiles}/${uid}`);
   if (!profile) return null;
 
+  const currentSignature = buildFarmLocationSignature(profile);
+  const savedSignature = typeof profile.farmLocationSignature === 'string' ? profile.farmLocationSignature : '';
   const latitude = Number(profile.farmLatitude);
   const longitude = Number(profile.farmLongitude);
-  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+  const area =
+    (typeof profile.farmArea === 'string' && profile.farmArea.trim()) ||
+    (typeof profile.farmVillage === 'string' && profile.farmVillage.trim()) ||
+    (typeof profile.location === 'string' && profile.location.trim()) ||
+    '';
+  const district = typeof profile.farmDistrict === 'string' ? profile.farmDistrict.trim() : '';
+  const stateOrLocation = typeof profile.location === 'string' ? profile.location.trim() : '';
+
+  if (Number.isFinite(latitude) && Number.isFinite(longitude) && (!currentSignature || savedSignature === currentSignature)) {
     return {
       latitude,
       longitude,
@@ -102,20 +144,17 @@ async function readProfileLocation(uid?: string | null) {
   }
 
   const explicitFarmLocation = toFarmLocation(profile.farmLocation, 'Farm Location');
-  if (explicitFarmLocation) return explicitFarmLocation;
+  if (explicitFarmLocation && (!currentSignature || savedSignature === currentSignature)) return explicitFarmLocation;
 
-  const area =
-    (typeof profile.farmArea === 'string' && profile.farmArea.trim()) ||
-    (typeof profile.farmVillage === 'string' && profile.farmVillage.trim()) ||
-    (typeof profile.location === 'string' && profile.location.trim()) ||
-    '';
-  const district = typeof profile.farmDistrict === 'string' ? profile.farmDistrict.trim() : '';
   if (!area) return null;
-  const resolved = await geocodeFarmArea(area, district);
+  const resolved = await geocodeFarmArea(area, district, stateOrLocation);
   if (!resolved) return { latitude: NaN, longitude: NaN, village: area };
-  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmVillage`, resolved.village);
-  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLatitude`, resolved.latitude);
-  await setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLongitude`, resolved.longitude);
+  void Promise.all([
+    setRealtime(`${firebasePaths.userProfiles}/${uid}/farmVillage`, resolved.village),
+    setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLatitude`, resolved.latitude),
+    setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLongitude`, resolved.longitude),
+    setRealtime(`${firebasePaths.userProfiles}/${uid}/farmLocationSignature`, currentSignature),
+  ]);
   return resolved;
 }
 
@@ -123,10 +162,10 @@ async function resolveFarmerLocation(uid?: string | null, profileVillage?: strin
   const fallbackVillage = profileVillage?.trim() || 'Farm Location';
   const savedProfileLocation = await readProfileLocation(uid);
   if (savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)) {
-    await saveStoredLocation(savedProfileLocation);
+    await saveStoredLocation(savedProfileLocation, uid);
     return savedProfileLocation;
   }
-  const stored = await readStoredLocation();
+  const stored = await readStoredLocationForUser(uid);
   if (stored) return stored;
   return savedProfileLocation && Number.isFinite(savedProfileLocation.latitude) && Number.isFinite(savedProfileLocation.longitude)
     ? savedProfileLocation
@@ -171,57 +210,36 @@ function toUnavailable(location: FarmLocation | null, fallback?: Partial<Weather
 export function useWeather() {
   const user = useAuthStore((state) => state.user);
   const role = useAuthStore((state) => state.role);
-  const profileLocation = useAppStore((state) => state.profile.location);
+  const profile = useAppStore((state) => state.profile);
+  const profileLocation = profile.location;
+  const profileSignature = buildFarmLocationSignature(profile as unknown as Record<string, unknown>);
+  const scopedWeatherCacheKey = weatherCacheKey(user?.uid, profileSignature || user?.uid);
 
   return useQuery({
-    queryKey: ['farmer-weather', user?.uid ?? 'guest', profileLocation ?? ''],
+    queryKey: ['farmer-weather', user?.uid ?? 'guest', profileSignature],
     enabled: role !== 'admin',
     queryFn: async () => {
-      const cached = await getCache<WeatherCache>(cacheKeys.weather);
+      const cached = await getCache<WeatherCache>(scopedWeatherCacheKey);
       const location = await resolveFarmerLocation(user?.uid, profileLocation);
 
       if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
         if (cached) return { ...cached, location: location ?? cached.location, source: 'cache' } satisfies WeatherCache;
-        const firebaseFallback = await readWeatherFromFirebase();
-        if (firebaseFallback) {
-          const fromFirebase: WeatherCache = {
-            ...firebaseFallback,
-            location,
-            source: 'firebase',
-            fetchedAt: Date.now(),
-          };
-          await setCache(cacheKeys.weather, fromFirebase);
-          return fromFirebase;
-        }
         return toUnavailable(location, cached ?? undefined);
       }
 
       try {
         const payload = await fetchWeather(location.latitude, location.longitude);
-        await cacheWeatherToFirebase(payload);
         const next: WeatherCache = {
           ...payload,
           location,
           source: 'live',
           fetchedAt: Date.now(),
         };
-        await setCache(cacheKeys.weather, next);
+        await setCache(scopedWeatherCacheKey, next);
         return next;
       } catch {
         if (cached) {
           return { ...cached, location, source: 'cache', unavailable: false } satisfies WeatherCache;
-        }
-
-        const firebaseFallback = await readWeatherFromFirebase();
-        if (firebaseFallback) {
-          const fromFirebase: WeatherCache = {
-            ...firebaseFallback,
-            location,
-            source: 'firebase',
-            fetchedAt: Date.now(),
-          };
-          await setCache(cacheKeys.weather, fromFirebase);
-          return fromFirebase;
         }
 
         return toUnavailable(location);

@@ -56,6 +56,8 @@ export default function AdminFarmersScreen() {
             <StatusBadge text={`${farmer.farmCount} FARM${farmer.farmCount === 1 ? '' : 'S'}`} tone="info" />
             <StatusBadge text={`${farmer.linkedDeviceCount} DEVICES`} tone="warn" />
             <StatusBadge text={`${Math.round(farmer.routeEfficiency)}% EFF`} tone="info" />
+            <StatusBadge text={`${farmer.activeCrops} CROP${farmer.activeCrops === 1 ? '' : 'S'}`} tone="ok" />
+            <StatusBadge text={`${farmer.cropAlertsDue} CROP TASK${farmer.cropAlertsDue === 1 ? '' : 'S'}`} tone={farmer.cropAlertsDue > 0 ? 'warn' : 'info'} />
           </InlineStatBadges>
 
           <View className="mt-4 gap-3">
@@ -64,6 +66,9 @@ export default function AdminFarmersScreen() {
             <DetailRow label="Theme" value={farmer.theme.toUpperCase()} />
             <DetailRow label="Last Login" value={farmer.lastLogin ? new Date(farmer.lastLogin * 1000).toLocaleString() : 'Never'} />
             <DetailRow label="Session Seen" value={farmer.loginLastSeen ? new Date(farmer.loginLastSeen * 1000).toLocaleString() : 'No live session'} />
+            <DetailRow label="Selected Crop" value={farmer.selectedCropName} />
+            <DetailRow label="Crop Stage" value={`${farmer.selectedCropStage} | Day ${farmer.selectedCropAgeDays}`} />
+            <DetailRow label="Next Crop Action" value={farmer.nextCropActionDueInDays == null ? farmer.nextCropAction : `${farmer.nextCropAction} in ${farmer.nextCropActionDueInDays} day${farmer.nextCropActionDueInDays === 1 ? '' : 's'}`} />
           </View>
 
           <View className="mt-4 flex-row flex-wrap gap-2">

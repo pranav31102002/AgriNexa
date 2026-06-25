@@ -31,6 +31,14 @@ export type AdminFarmerRow = {
   deviceOnline: boolean;
   farmCount: number;
   linkedDeviceCount: number;
+  activeCrops: number;
+  selectedCropName: string;
+  selectedCropStage: string;
+  selectedCropAgeDays: number;
+  harvestDueInDays: number | null;
+  nextCropAction: string;
+  nextCropActionDueInDays: number | null;
+  cropAlertsDue: number;
   status: 'active' | 'inactive';
 };
 

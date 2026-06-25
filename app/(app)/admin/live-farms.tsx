@@ -130,6 +130,8 @@ export default function AdminLiveFarmsScreen() {
             <StatusBadge text={`TEMP ${Math.round(farm.temperature)} C`} tone="info" />
             <StatusBadge text={`HUMIDITY ${Math.round(farm.humidity)}%`} tone="info" />
             <StatusBadge text={`PH ${farm.ph == null ? 'N/A' : farm.ph.toFixed(1)}`} tone="warn" />
+            <StatusBadge text={`${farm.activeCrops} ACTIVE CROP${farm.activeCrops === 1 ? '' : 'S'}`} tone="ok" />
+            <StatusBadge text={`${farm.cropAlertsDue} CROP TASK${farm.cropAlertsDue === 1 ? '' : 'S'}`} tone={farm.cropAlertsDue > 0 ? 'warn' : 'info'} />
             <StatusBadge text={farm.pumpStatus ? 'PUMP ON' : 'PUMP OFF'} tone={farm.pumpStatus ? 'ok' : 'warn'} />
             <StatusBadge text={(farm.irrigationMode || farm.routeMode || 'IDLE').toUpperCase()} tone={farm.routeMode === 'IDLE' ? 'info' : 'ok'} />
             <StatusBadge text={farm.cameraAvailable ? 'CAMERA READY' : 'CAMERA N/A'} tone={farm.cameraAvailable ? 'ok' : 'warn'} />
@@ -140,6 +142,10 @@ export default function AdminLiveFarmsScreen() {
             <DetailRow label="Water Route" value={farm.waterRouteActive ? 'Active' : 'Off'} />
             <DetailRow label="Spray Route" value={farm.sprayRouteActive ? 'Active' : 'Off'} />
             <DetailRow label="Common Motor" value={farm.commonMotor ? 'On' : 'Off'} />
+            <DetailRow label="Selected Crop" value={farm.selectedCropName} />
+            <DetailRow label="Crop Stage" value={`${farm.selectedCropStage} | Day ${farm.selectedCropAgeDays}`} />
+            <DetailRow label="Next Crop Action" value={farm.nextCropActionDueInDays == null ? farm.nextCropAction : `${farm.nextCropAction} in ${farm.nextCropActionDueInDays} day${farm.nextCropActionDueInDays === 1 ? '' : 's'}`} />
+            <DetailRow label="Harvest Plan" value={farm.harvestDueInDays == null ? 'Not planned' : `${farm.harvestDueInDays} day${farm.harvestDueInDays === 1 ? '' : 's'} remaining`} />
             <DetailRow label="Last Update" value={farm.lastSync ? new Date(farm.lastSync * 1000).toLocaleString() : 'No sync'} />
             <DetailRow label="Latest Alert" value={farm.latestAlert} />
           </View>

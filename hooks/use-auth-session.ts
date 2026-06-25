@@ -2,7 +2,7 @@ import { AppState } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { watchAuth } from '@/services/auth';
 import { useAuthStore } from '@/store/use-auth-store';
-import { getRealtimeOnce, setRealtime } from '@/services/firebase';
+import { getRealtimeOnce, updateRealtime } from '@/services/firebase';
 import { firebasePaths } from '@/constants/firebase-paths';
 import { useAppStore } from '@/store/use-app-store';
 import { ThemeMode, UserProfile } from '@/types';
@@ -74,9 +74,11 @@ export function useAuthSession() {
             setThemeMode(theme);
             setAuthProfile(mergedProfile);
             setProfile(mergedProfile);
-            await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/sessionOnline`, true);
-            await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/sessionLastSeen`, Math.floor(Date.now() / 1000));
-            await setRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}/lastLogin`, Math.floor(Date.now() / 1000));
+            await updateRealtime(`${firebasePaths.userProfiles}/${safeUser.uid}`, {
+              sessionOnline: true,
+              sessionLastSeen: Math.floor(Date.now() / 1000),
+              lastLogin: Math.floor(Date.now() / 1000),
+            });
           } catch {
             if (cancelled) return;
 
@@ -124,8 +126,10 @@ export function useAuthSession() {
       if (!activeUid) return;
 
       const timestamp = Math.floor(Date.now() / 1000);
-      await setRealtime(`${firebasePaths.userProfiles}/${activeUid}/sessionOnline`, online);
-      await setRealtime(`${firebasePaths.userProfiles}/${activeUid}/sessionLastSeen`, timestamp);
+      await updateRealtime(`${firebasePaths.userProfiles}/${activeUid}`, {
+        sessionOnline: online,
+        sessionLastSeen: timestamp,
+      });
     };
 
     void writePresence(true);

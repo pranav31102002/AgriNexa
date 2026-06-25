@@ -43,6 +43,7 @@ export default function AdminFarmerProfileScreen() {
               <InfoTile label="Farms" value={`${farmer.farmCount}`} tone={palette.accent} />
               <InfoTile label="Devices" value={`${farmer.linkedDeviceCount}`} />
               <InfoTile label="Route Eff." value={`${Math.round(farmer.routeEfficiency)}%`} />
+              <InfoTile label="Crops" value={`${farmer.activeCrops}`} tone={palette.accent} />
             </View>
           </GlassCard>
 
@@ -53,6 +54,11 @@ export default function AdminFarmerProfileScreen() {
               <DetailRow label="Theme" value={farmer.theme.toUpperCase()} />
               <DetailRow label="Login Status" value={farmer.loginOnline ? 'Online' : 'Offline'} />
               <DetailRow label="Device Status" value={farmer.deviceOnline ? 'Online' : 'Offline'} />
+              <DetailRow label="Selected Crop" value={farmer.selectedCropName} />
+              <DetailRow label="Crop Stage" value={`${farmer.selectedCropStage} | Day ${farmer.selectedCropAgeDays}`} />
+              <DetailRow label="Crop Tasks Due" value={`${farmer.cropAlertsDue}`} />
+              <DetailRow label="Next Crop Action" value={farmer.nextCropActionDueInDays == null ? farmer.nextCropAction : `${farmer.nextCropAction} in ${farmer.nextCropActionDueInDays} day${farmer.nextCropActionDueInDays === 1 ? '' : 's'}`} />
+              <DetailRow label="Harvest Plan" value={farmer.harvestDueInDays == null ? 'Not planned' : `${farmer.harvestDueInDays} day${farmer.harvestDueInDays === 1 ? '' : 's'} remaining`} />
               <DetailRow label="Last Login" value={farmer.lastLogin ? new Date(farmer.lastLogin * 1000).toLocaleString() : 'Never'} />
               <DetailRow label="Session Seen" value={farmer.loginLastSeen ? new Date(farmer.loginLastSeen * 1000).toLocaleString() : 'No live session'} />
             </View>

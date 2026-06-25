@@ -21,5 +21,13 @@ export type FarmStatus = {
   cameraAvailable: boolean;
   latestAlert: string;
   lastSync: number;
+  activeCrops: number;
+  selectedCropName: string;
+  selectedCropStage: string;
+  selectedCropAgeDays: number;
+  harvestDueInDays: number | null;
+  nextCropAction: string;
+  nextCropActionDueInDays: number | null;
+  cropAlertsDue: number;
 };
 

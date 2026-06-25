@@ -1,9 +1,8 @@
-﻿import { useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { cacheKeys, getCache, setCache } from '@/services/cache.service';
 import { getRealtimeOnce } from '@/services/firebase';
 import { logSensorSnapshotIfDue } from '@/services/history.service';
 import { firebasePaths } from '@/constants/firebase-paths';
-import { SensorCurrent } from '@/types';
 import { FarmRealtime, PesticideStatus, RouteState } from '@/types/farm';
 import { FirebaseDeviceStatus, FirebaseSensorsCurrent } from '@/types/firebase';
 
@@ -35,38 +34,78 @@ type ControlsJson = {
 
 type PesticideStatusJson = PesticideStatus | null | undefined;
 
-function toIso(ts?: number) {
-  if (!ts) return new Date().toISOString();
-  const ms = ts < 10_000_000_000 ? ts * 1000 : ts;
-  return new Date(ms).toISOString();
+function readNumber(...values: unknown[]) {
+  for (const value of values) {
+    const next = Number(value);
+    if (Number.isFinite(next)) return next;
+  }
+  return undefined;
 }
 
-function toMs(ts?: number) {
-  if (!ts) return 0;
-  return ts < 10_000_000_000 ? ts * 1000 : ts;
+function readBool(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['1', 'true', 'on', 'yes', 'high', 'online', 'connected'].includes(normalized)) return true;
+      if (['0', 'false', 'off', 'no', 'low', 'offline', 'disconnected'].includes(normalized)) return false;
+    }
+  }
+  return undefined;
+}
+
+function readTimestamp(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return undefined;
+}
+
+function toMs(ts?: number | string) {
+  const value = readTimestamp(ts);
+  if (!value) return 0;
+  return value < 10_000_000_000 ? value * 1000 : value;
+}
+
+function toIso(ts?: number | string) {
+  const ms = toMs(ts);
+  return ms ? new Date(ms).toISOString() : new Date().toISOString();
+}
+
+function sensorTimestamp(sensors: FirebaseSensorsCurrent) {
+  return readTimestamp(sensors.timestamp, sensors.ts, sensors.updatedAt, sensors.lastSync);
 }
 
 const DEVICE_HEARTBEAT_TIMEOUT_MS = 90_000;
+const SENSOR_FRESH_WINDOW_MS = 5 * 60 * 1000;
 
-function isDeviceHeartbeatOnline(status?: FirebaseDeviceStatus) {
-  if (!status?.lastSeen) return false;
-  const age = Date.now() - toMs(status.lastSeen);
+function isDeviceHeartbeatOnline(status?: FirebaseDeviceStatus | null) {
+  const heartbeat = readTimestamp(status?.lastSeen, status?.timestamp, status?.updatedAt, status?.lastSync);
+  if (!heartbeat) return false;
+  const age = Date.now() - toMs(heartbeat);
   if (age < 0 || age > DEVICE_HEARTBEAT_TIMEOUT_MS) return false;
-  const connection = String(status.connection ?? '').toLowerCase();
-  if (status.online === true) return true;
-  if (connection === 'connected' || connection === 'online' || connection === 'up') return true;
-  // Some firmware sends reliable heartbeat but not boolean online.
+  const connection = String(status?.connection ?? status?.status ?? '').toLowerCase();
+  if (readBool(status?.online, status?.connected) === true) return true;
+  if (connection === 'connected' || connection === 'online' || connection === 'up' || connection === 'ok') return true;
   return true;
 }
 
 function inferDeviceOnline(sensors: FirebaseSensorsCurrent, mainStatus?: FirebaseDeviceStatus, camStatus?: FirebaseDeviceStatus) {
-  const temp = Number(sensors.temperature);
-  const humidity = Number(sensors.humidity);
-  const hasLiveReadings = Number.isFinite(temp) && Number.isFinite(humidity);
-  const ageMs = Date.now() - toMs(sensors.timestamp);
-  const hasFreshSensorUpdate = sensors.timestamp ? ageMs >= 0 && ageMs <= 300_000 : false;
-  const hasRecentReadingWithoutTimestamp = !sensors.timestamp && hasLiveReadings && (temp !== 0 || humidity !== 0);
-
+  const temp = readNumber(sensors.temperature, sensors.temp, sensors.temperatureC, sensors.dhtTemp, sensors.airTemperature);
+  const humidity = readNumber(sensors.humidity, sensors.hum, sensors.humidityPct, sensors.dhtHumidity);
+  const hasLiveReadings = temp != null || humidity != null;
+  const timestamp = sensorTimestamp(sensors);
+  const ageMs = Date.now() - toMs(timestamp);
+  const hasFreshSensorUpdate = timestamp ? ageMs >= 0 && ageMs <= SENSOR_FRESH_WINDOW_MS : false;
+  const hasRecentReadingWithoutTimestamp = !timestamp && hasLiveReadings && ((temp ?? 0) !== 0 || (humidity ?? 0) !== 0);
   const heartbeatOnline = isDeviceHeartbeatOnline(mainStatus) || isDeviceHeartbeatOnline(camStatus);
   return (hasLiveReadings && hasFreshSensorUpdate) || hasRecentReadingWithoutTimestamp || heartbeatOnline;
 }
@@ -77,26 +116,19 @@ function deriveRouteState(
 ): { routeState: RouteState; flushActive: boolean; commonLineActive: boolean } {
   const reason = String(pesticideStatus?.reason ?? '').toUpperCase();
   const flushActive = reason.includes('FLUSH') || reason.includes('CLEAN');
-  const pesticideActive = Boolean(sensors.pumpSpray);
-  const waterActive = Boolean(sensors.pumpWater);
-  const routeMode = String(sensors.routeMode ?? '').toUpperCase();
+  const pesticideActive = Boolean(readBool(sensors.pumpSpray, sensors.pesticidePump, sensors.pesticidePumpStatus));
+  const waterActive = Boolean(readBool(sensors.pumpWater, sensors.waterPump, sensors.waterPumpStatus));
+  const routeMode = String(sensors.routeMode ?? sensors.routeState ?? '').toUpperCase();
 
   let routeState: RouteState = 'IDLE';
-  if (routeMode === 'FLUSH') {
-    routeState = 'FLUSH';
-  } else if (routeMode === 'PESTICIDE') {
-    routeState = 'PESTICIDE';
-  } else if (routeMode === 'WATER') {
-    routeState = 'WATER';
-  } else if (flushActive) {
-    routeState = 'FLUSH';
-  } else if (pesticideActive) {
-    routeState = 'PESTICIDE';
-  } else if (waterActive) {
-    routeState = 'WATER';
-  }
+  if (routeMode === 'FLUSH') routeState = 'FLUSH';
+  else if (routeMode === 'PESTICIDE') routeState = 'PESTICIDE';
+  else if (routeMode === 'WATER') routeState = 'WATER';
+  else if (flushActive) routeState = 'FLUSH';
+  else if (pesticideActive) routeState = 'PESTICIDE';
+  else if (waterActive) routeState = 'WATER';
 
-  const commonLineActive = typeof sensors.commonMotor === 'boolean' ? sensors.commonMotor : routeState !== 'IDLE';
+  const commonLineActive = readBool(sensors.commonMotor) ?? routeState !== 'IDLE';
   return { routeState, flushActive, commonLineActive };
 }
 
@@ -108,23 +140,24 @@ function mapToSensor(
   pesticideStatus?: PesticideStatusJson
 ): FarmRealtime {
   const route = deriveRouteState(sensors, pesticideStatus);
+  const soil1 = readNumber(sensors.soil1, sensors.soilMoisture1) ?? defaults.soilMoisture1;
+  const soil2 = readNumber(sensors.soil2, sensors.soilMoisture2) ?? defaults.soilMoisture2;
+
   return {
-    temperature: Number(sensors.temperature ?? defaults.temperature),
-    humidity: Number(sensors.humidity ?? defaults.humidity),
-    soilMoisture1: Number(sensors.soil1 ?? defaults.soilMoisture1),
-    soilMoisture2: Number(sensors.soil2 ?? defaults.soilMoisture2),
-    avgSoilMoisture: Number(
-      sensors.avgSoil ?? ((Number(sensors.soil1 ?? 0) + Number(sensors.soil2 ?? 0)) / 2)
-    ),
-    tankWaterLevel: Number(sensors.tankLevel ?? defaults.tankWaterLevel),
-    waterPumpStatus: Boolean(sensors.pumpWater ?? defaults.waterPumpStatus),
-    pesticidePumpStatus: Boolean(sensors.pumpSpray ?? defaults.pesticidePumpStatus),
-    waterValve: Boolean(sensors.waterValve ?? defaults.waterValve),
-    commonMotor: Boolean(sensors.commonMotor ?? defaults.commonMotor),
-    routeMode: String(sensors.routeMode ?? defaults.routeMode),
-    autoMode: Boolean(controls?.autoMode ?? defaults.autoMode),
+    temperature: readNumber(sensors.temperature, sensors.temp, sensors.temperatureC, sensors.dhtTemp, sensors.airTemperature) ?? defaults.temperature,
+    humidity: readNumber(sensors.humidity, sensors.hum, sensors.humidityPct, sensors.dhtHumidity) ?? defaults.humidity,
+    soilMoisture1: soil1,
+    soilMoisture2: soil2,
+    avgSoilMoisture: readNumber(sensors.avgSoil, sensors.avgSoilMoisture, sensors.soilAvg, (soil1 + soil2) / 2) ?? defaults.avgSoilMoisture,
+    tankWaterLevel: readNumber(sensors.tankLevel, sensors.tankWaterLevel, sensors.waterLevel) ?? defaults.tankWaterLevel,
+    waterPumpStatus: readBool(sensors.pumpWater, sensors.waterPump, sensors.waterPumpStatus) ?? defaults.waterPumpStatus,
+    pesticidePumpStatus: readBool(sensors.pumpSpray, sensors.pesticidePump, sensors.pesticidePumpStatus) ?? defaults.pesticidePumpStatus,
+    waterValve: readBool(sensors.waterValve) ?? defaults.waterValve,
+    commonMotor: readBool(sensors.commonMotor) ?? defaults.commonMotor,
+    routeMode: String(sensors.routeMode ?? sensors.routeState ?? defaults.routeMode),
+    autoMode: readBool(controls?.autoMode) ?? defaults.autoMode,
     deviceOnline: inferDeviceOnline(sensors, mainStatus, camStatus),
-    lastSync: toIso(sensors.timestamp),
+    lastSync: toIso(sensorTimestamp(sensors)),
     offlineMode: false,
     routeState: route.routeState,
     commonLineActive: route.commonLineActive,
@@ -138,10 +171,11 @@ export function useDashboardData() {
     queryKey: ['dashboard-current'],
     queryFn: async () => {
       try {
-        const [sensors, controls, mainStatus, camStatus, pesticideStatus] = await Promise.all([
+        const [sensors, controls, mainStatus, waterControllerStatus, camStatus, pesticideStatus] = await Promise.all([
           getRealtimeOnce<FirebaseSensorsCurrent>(firebasePaths.sensorsCurrent),
           getRealtimeOnce<ControlsJson>(firebasePaths.controls),
           getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusMain),
+          getRealtimeOnce<FirebaseDeviceStatus>('SmartKisanSathi/deviceStatus/waterController'),
           getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusCam),
           getRealtimeOnce<PesticideStatusJson>(`${firebasePaths.pesticide}/status`),
         ]);
@@ -153,7 +187,7 @@ export function useDashboardData() {
         const next = mapToSensor(
           sensors,
           controls ?? undefined,
-          mainStatus ?? undefined,
+          mainStatus ?? waterControllerStatus ?? undefined,
           camStatus ?? undefined,
           pesticideStatus ?? undefined
         );

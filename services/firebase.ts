@@ -2,7 +2,7 @@ import { AppLog } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApps, initializeApp } from 'firebase/app';
 import * as FirebaseAuth from 'firebase/auth';
-import { get, getDatabase, push, ref, set } from 'firebase/database';
+import { get, getDatabase, push, ref, set, update } from 'firebase/database';
 import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { enqueuePendingWrite, flushPendingWrites } from '@/services/offline-queue.service';
 
@@ -63,6 +63,22 @@ export async function setRealtime(path: string, value: unknown): Promise<boolean
   await ensureAuthReady();
   try {
     await set(ref(db, path), value);
+    void flushOfflineWrites();
+    return true;
+  } catch (error) {
+    const msg = String(error ?? '');
+    const isDenied = msg.includes('permission_denied') || msg.includes('PERMISSION_DENIED');
+    if (isDenied) return false;
+    await enqueuePendingWrite(path, value);
+    return false;
+  }
+}
+
+export async function updateRealtime(path: string, value: Record<string, unknown>): Promise<boolean> {
+  if (!db) return false;
+  await ensureAuthReady();
+  try {
+    await update(ref(db, path), value);
     void flushOfflineWrites();
     return true;
   } catch (error) {

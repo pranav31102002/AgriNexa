@@ -13,6 +13,8 @@ import {
 import { normalizeUserRole } from '@/types/userRole';
 import { DailyReport, MonthlyReport, WeeklyReport } from '@/services/report/report-calculator';
 import { FirebaseDeviceStatus, FirebaseSensorsCurrent } from '@/types/firebase';
+import { CropAlert, CropPlannerItem, CropTemplateKey } from '@/types/crop';
+import { buildCropPlannerSummary } from '@/services/crop/crop-planner.service';
 
 type RealtimeMap = Record<string, any>;
 
@@ -26,6 +28,33 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_HEARTBEAT_TIMEOUT_MS = 90_000;
 const FARM_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
 
+type CropOpsSummary = {
+  activeCrops: number;
+  selectedCropName: string;
+  selectedCropStage: string;
+  selectedCropAgeDays: number;
+  harvestDueInDays: number | null;
+  nextCropAction: string;
+  nextCropActionDueInDays: number | null;
+  cropAlertsDue: number;
+};
+
+const EMPTY_CROP_OPS: CropOpsSummary = {
+  activeCrops: 0,
+  selectedCropName: 'No crop selected',
+  selectedCropStage: 'N/A',
+  selectedCropAgeDays: 0,
+  harvestDueInDays: null,
+  nextCropAction: 'No upcoming crop task',
+  nextCropActionDueInDays: null,
+  cropAlertsDue: 0,
+};
+
+const CROP_TEMPLATE_KEYS: CropTemplateKey[] = ['tomato', 'onion', 'rice', 'wheat', 'sugarcane', 'cotton', 'soybean', 'chilli', 'brinjal'];
+
+function isCropTemplateKey(value: unknown): value is CropTemplateKey {
+  return typeof value === 'string' && CROP_TEMPLATE_KEYS.includes(value as CropTemplateKey);
+}
 function toNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -65,6 +94,156 @@ function isOnline(status?: FirebaseDeviceStatus | null) {
   return status.online === true;
 }
 
+function normalizeCropRecord(id: string, raw: Record<string, unknown> | null): CropPlannerItem | null {
+  if (!raw) return null;
+  const templateKey = isCropTemplateKey(raw.templateKey) ? raw.templateKey : 'tomato';
+  return {
+    id: toText(raw.id, id),
+    cropName: toText(raw.cropName, templateKey),
+    variety: toText(raw.variety),
+    farmId: toText(raw.farmId, 'default'),
+    farmName: toText(raw.farmName, 'Main Farm'),
+    plantDate: toText(raw.plantDate, new Date().toISOString()),
+    expectedHarvestDate: toText(raw.expectedHarvestDate),
+    templateKey,
+    status: raw.status === 'completed' || raw.status === 'paused' ? raw.status : 'active',
+    createdAt: toTimestamp(raw.createdAt) || Math.floor(Date.now() / 1000),
+    updatedAt: toTimestamp(raw.updatedAt) || Math.floor(Date.now() / 1000),
+  };
+}
+
+function normalizeCropAlertRecord(id: string, raw: Record<string, unknown> | null): CropAlert | null {
+  if (!raw) return null;
+  const type = ['spray', 'fertilizer', 'flowering', 'fruiting', 'harvest', 'disease-risk'].includes(String(raw.type))
+    ? String(raw.type)
+    : 'spray';
+  const priority = raw.priority === 'high' || raw.priority === 'medium' || raw.priority === 'low' ? raw.priority : 'low';
+  return {
+    id: toText(raw.id, id),
+    cropId: toText(raw.cropId),
+    cropName: toText(raw.cropName, 'Crop'),
+    title: toText(raw.title, 'Crop task'),
+    type: type as CropAlert['type'],
+    dueDate: toText(raw.dueDate),
+    dueInDays: toNumber(raw.dueInDays, 999),
+    completed: toBool(raw.completed),
+    priority,
+    message: toText(raw.message),
+    createdAt: toTimestamp(raw.createdAt),
+  };
+}
+
+function normalizeCropMap(raw: RealtimeMap | null) {
+  return Object.entries(raw ?? {})
+    .map(([id, value]) => normalizeCropRecord(id, (value ?? null) as Record<string, unknown> | null))
+    .filter((crop): crop is CropPlannerItem => Boolean(crop));
+}
+
+function normalizeCropAlertMap(raw: RealtimeMap | null) {
+  return Object.entries(raw ?? {})
+    .map(([id, value]) => normalizeCropAlertRecord(id, (value ?? null) as Record<string, unknown> | null))
+    .filter((alert): alert is CropAlert => Boolean(alert));
+}
+
+function looksLikeCropRecord(value: unknown) {
+  if (!value || typeof value !== 'object') return false;
+  const raw = value as Record<string, unknown>;
+  return Boolean(raw.plantDate || raw.cropName || raw.templateKey);
+}
+
+function looksLikeCropAlertRecord(value: unknown) {
+  if (!value || typeof value !== 'object') return false;
+  const raw = value as Record<string, unknown>;
+  return Boolean(raw.cropId || raw.dueInDays !== undefined || raw.dueDate);
+}
+
+function normalizeCropPlannerByUid(raw: RealtimeMap | null) {
+  const byUid = new Map<string, CropPlannerItem[]>();
+  const legacy: CropPlannerItem[] = [];
+
+  Object.entries(raw ?? {}).forEach(([key, value]) => {
+    if (looksLikeCropRecord(value)) {
+      const crop = normalizeCropRecord(key, value as Record<string, unknown>);
+      if (crop) legacy.push(crop);
+      return;
+    }
+
+    const crops = normalizeCropMap((value ?? {}) as RealtimeMap);
+    if (crops.length) byUid.set(key, crops);
+  });
+
+  return { byUid, legacy };
+}
+
+function normalizeCropAlertsByUid(raw: RealtimeMap | null) {
+  const byUid = new Map<string, CropAlert[]>();
+  const legacy: CropAlert[] = [];
+
+  Object.entries(raw ?? {}).forEach(([key, value]) => {
+    if (looksLikeCropAlertRecord(value)) {
+      const alert = normalizeCropAlertRecord(key, value as Record<string, unknown>);
+      if (alert) legacy.push(alert);
+      return;
+    }
+
+    const alerts = normalizeCropAlertMap((value ?? {}) as RealtimeMap);
+    if (alerts.length) byUid.set(key, alerts);
+  });
+
+  return { byUid, legacy };
+}
+
+function selectedCropForUid(raw: RealtimeMap | null, uid: string) {
+  const userPrefs = raw?.[uid];
+  if (userPrefs && typeof userPrefs === 'object') {
+    return toText((userPrefs as Record<string, unknown>).selectedCropId);
+  }
+  return '';
+}
+
+function normalizedKey(value: unknown) {
+  return toText(value).toLowerCase().trim();
+}
+
+function cropBelongsToFarm(
+  crop: CropPlannerItem,
+  farmId: string,
+  raw: Record<string, unknown>,
+  profile: Record<string, unknown> | null,
+  totalFarmers: number
+) {
+  const cropFarmId = normalizedKey(crop.farmId);
+  const cropFarmName = normalizedKey(crop.farmName);
+  const farmKeys = [farmId, raw.farmId, raw.id].map(normalizedKey).filter(Boolean);
+  const farmNames = [raw.farmName, profile?.farmName].map(normalizedKey).filter(Boolean);
+
+  if (farmKeys.includes(cropFarmId)) return true;
+  if (cropFarmName && farmNames.includes(cropFarmName)) return true;
+
+  const defaultCrop = cropFarmId === 'default' || cropFarmName === 'main farm';
+  return defaultCrop && totalFarmers <= 1;
+}
+
+function buildCropOpsSummary(crops: CropPlannerItem[], cropAlerts: CropAlert[], selectedCropId?: string | null): CropOpsSummary {
+  if (!crops.length) return EMPTY_CROP_OPS;
+  const summary = buildCropPlannerSummary(crops, { selectedCropId });
+  const selected = summary.selectedCrop ?? summary.cropStates[0] ?? null;
+  const activeCropIds = new Set(crops.filter((crop) => crop.status === 'active').map((crop) => crop.id));
+  const persistedDueAlerts = cropAlerts.filter(
+    (alert) => activeCropIds.has(alert.cropId) && !alert.completed && alert.dueInDays >= 0 && alert.dueInDays <= 7
+  ).length;
+
+  return {
+    activeCrops: summary.activeCrops,
+    selectedCropName: selected?.crop.cropName ?? 'No crop selected',
+    selectedCropStage: selected?.currentStage.name ?? 'N/A',
+    selectedCropAgeDays: selected?.ageDays ?? 0,
+    harvestDueInDays: selected?.harvestDueInDays ?? null,
+    nextCropAction: selected?.nextAction?.title ?? 'No upcoming crop task',
+    nextCropActionDueInDays: selected?.nextActionDueInDays ?? null,
+    cropAlertsDue: persistedDueAlerts || summary.upcomingAlerts.filter((alert) => alert.dueInDays <= 7).length,
+  };
+}
 async function safeGetRealtimeOnce<T>(path: string): Promise<T | null> {
   try {
     return await getRealtimeOnce<T>(path);
@@ -183,7 +362,8 @@ function buildFarm(
   sensorsCurrent: FirebaseSensorsCurrent | null,
   mainStatus: FirebaseDeviceStatus | null,
   camStatus: FirebaseDeviceStatus | null,
-  latestAlert?: AdminAlert
+  latestAlert?: AdminAlert,
+  cropOps: CropOpsSummary = EMPTY_CROP_OPS
 ): FarmStatus {
   const camOnline = isOnline(camStatus);
   const farmOnline = inferFarmOnline(raw, sensorsCurrent, mainStatus, camStatus);
@@ -212,6 +392,14 @@ function buildFarm(
     cameraAvailable: toBool(raw?.cameraAvailable, camOnline),
     latestAlert: latestAlert?.reason || toText(raw?.latestAlert, 'No active alert'),
     lastSync: toTimestamp(raw?.lastSync ?? sensorsCurrent?.timestamp),
+    activeCrops: cropOps.activeCrops,
+    selectedCropName: cropOps.selectedCropName,
+    selectedCropStage: cropOps.selectedCropStage,
+    selectedCropAgeDays: cropOps.selectedCropAgeDays,
+    harvestDueInDays: cropOps.harvestDueInDays,
+    nextCropAction: cropOps.nextCropAction,
+    nextCropActionDueInDays: cropOps.nextCropActionDueInDays,
+    cropAlertsDue: cropOps.cropAlertsDue,
   };
 }
 
@@ -399,7 +587,8 @@ function buildFallbackFarmFromProfile(
   profile: Record<string, unknown>,
   sensorsCurrent: FirebaseSensorsCurrent | null,
   mainStatus: FirebaseDeviceStatus | null,
-  camStatus: FirebaseDeviceStatus | null
+  camStatus: FirebaseDeviceStatus | null,
+  cropOps: CropOpsSummary = EMPTY_CROP_OPS
 ): FarmStatus {
   const farmName = toText(profile?.farmName, 'Unnamed Farm');
   const location = toText(profile?.location || profile?.farmArea || profile?.farmVillage, 'Unknown Location');
@@ -414,7 +603,7 @@ function buildFallbackFarmFromProfile(
     lastSync: profile?.sessionLastSeen ?? profile?.lastLogin ?? sensorsCurrent?.timestamp ?? 0,
   };
 
-  return buildFarm(`profile_${uid}`, fallbackRaw, profile, sensorsCurrent, mainStatus, camStatus);
+  return buildFarm(`profile_${uid}`, fallbackRaw, profile, sensorsCurrent, mainStatus, camStatus, undefined, cropOps);
 }
 
 export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
@@ -431,6 +620,9 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     monthlyReport,
     pesticideApproval,
     actionLogsRaw,
+    cropPlannerRaw,
+    cropAlertsRaw,
+    userPreferencesRaw,
   ] = await Promise.all([
     safeGetRealtimeOnce<RealtimeMap>(firebasePaths.userProfiles),
     safeGetRealtimeOnce<RealtimeMap>(firebasePaths.adminGlobalAnalytics),
@@ -444,11 +636,34 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     safeGetRealtimeOnce<MonthlyReport>(firebasePaths.reportsMonthly),
     safeGetRealtimeOnce<Record<string, unknown>>(`${firebasePaths.pesticide}/approval`),
     safeGetRealtimeOnce<RealtimeMap>(firebasePaths.logsActions),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.cropPlanner),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.cropAlerts),
+    safeGetRealtimeOnce<RealtimeMap>(firebasePaths.userPreferences),
   ]);
-
   const alerts = buildAlerts(alertsRaw);
   const { latestByFarm, countByFarm, unresolvedByFarm } = buildAlertIndexes(alerts);
 
+  const cropPlannerByUid = normalizeCropPlannerByUid(cropPlannerRaw);
+  const cropAlertsByUid = normalizeCropAlertsByUid(cropAlertsRaw);
+  const farmerProfileCount = Object.values(profilesRaw ?? {}).filter((profile) => normalizeUserRole(profile?.role) === 'farmer').length;
+  const cropOpsForFarm = (farmId: string, raw: Record<string, unknown>, profile: Record<string, unknown> | null) => {
+    const farmerUid = toText(raw.uid ?? raw.farmerUid);
+    const userCrops = farmerUid ? cropPlannerByUid.byUid.get(farmerUid) ?? [] : [];
+    const scopedUserCrops = userCrops.filter((crop) => cropBelongsToFarm(crop, farmId, raw, profile, 1));
+    const allowLegacyCrops = !farmerUid && farmerProfileCount <= 1;
+    const legacyCrops = allowLegacyCrops
+      ? cropPlannerByUid.legacy.filter((crop) => cropBelongsToFarm(crop, farmId, raw, profile, farmerProfileCount))
+      : [];
+    const allCrops = [...scopedUserCrops, ...legacyCrops];
+    const userCropAlerts = farmerUid ? cropAlertsByUid.byUid.get(farmerUid) ?? [] : [];
+    const legacyCropAlerts = allowLegacyCrops ? cropAlertsByUid.legacy : [];
+    const farmCrops = allCrops;
+    const farmCropIds = new Set(farmCrops.map((crop) => crop.id));
+    const farmCropAlerts = [...userCropAlerts, ...legacyCropAlerts].filter((alert) => farmCropIds.has(alert.cropId));
+    const selectedCropId = farmerUid ? selectedCropForUid(userPreferencesRaw, farmerUid) : '';
+    const selectedForFarm = selectedCropId && farmCropIds.has(selectedCropId) ? selectedCropId : null;
+    return buildCropOpsSummary(farmCrops, farmCropAlerts, selectedForFarm);
+  };
   const farms = Object.entries(farmsIndexRaw ?? {}).map(([farmId, value]) => {
     const farmerUid = toText(value?.uid ?? value?.farmerUid);
     const profile = (profilesRaw?.[farmerUid] ?? null) as Record<string, unknown> | null;
@@ -460,14 +675,25 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       sensorsCurrent,
       mainStatus,
       camStatus,
-      latestByFarm.get(farmId) ?? latestByFarm.get(toText(value?.farmName))
+      latestByFarm.get(farmId) ?? latestByFarm.get(toText(value?.farmName)),
+      cropOpsForFarm(farmId, (value ?? {}) as Record<string, unknown>, profile)
     );
   });
 
   const existingFarmers = new Set(farms.map((farm) => farm.farmerUid).filter(Boolean));
   const fallbackFarms = Object.entries(profilesRaw ?? {})
     .filter(([uid, profile]) => normalizeUserRole(profile?.role) === 'farmer' && !existingFarmers.has(uid))
-    .map(([uid, profile]) => buildFallbackFarmFromProfile(uid, (profile ?? {}) as Record<string, unknown>, sensorsCurrent, mainStatus, camStatus));
+    .map(([uid, profile]) => {
+      const normalizedProfile = (profile ?? {}) as Record<string, unknown>;
+      return buildFallbackFarmFromProfile(
+        uid,
+        normalizedProfile,
+        sensorsCurrent,
+        mainStatus,
+        camStatus,
+        cropOpsForFarm(`profile_${uid}`, { uid, farmId: 'default', farmName: normalizedProfile.farmName }, normalizedProfile)
+      );
+    });
 
   const mergedFarms = [...farms, ...fallbackFarms];
 
@@ -513,6 +739,14 @@ export async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       deviceOnline: inferredDeviceOnline,
       farmCount: linkedFarms.length || (profile?.farmName ? 1 : 0),
       linkedDeviceCount,
+      activeCrops: primaryFarm?.activeCrops ?? 0,
+      selectedCropName: primaryFarm?.selectedCropName ?? 'No crop selected',
+      selectedCropStage: primaryFarm?.selectedCropStage ?? 'N/A',
+      selectedCropAgeDays: primaryFarm?.selectedCropAgeDays ?? 0,
+      harvestDueInDays: primaryFarm?.harvestDueInDays ?? null,
+      nextCropAction: primaryFarm?.nextCropAction ?? 'No upcoming crop task',
+      nextCropActionDueInDays: primaryFarm?.nextCropActionDueInDays ?? null,
+      cropAlertsDue: primaryFarm?.cropAlertsDue ?? 0,
       status: active ? 'active' : 'inactive',
     };
   });

@@ -8,7 +8,7 @@ import {
   User,
 } from 'firebase/auth';
 import { firebasePaths } from '@/constants/firebase-paths';
-import { auth, firebaseAppReady, setRealtime } from '@/services/firebase';
+import { auth, firebaseAppReady, setRealtime, updateRealtime } from '@/services/firebase';
 
 export function watchAuth(callback: (user: User | null) => void) {
   if (!auth || !firebaseAppReady) {
@@ -74,8 +74,10 @@ export async function logout() {
   if (!auth) return;
   const uid = auth.currentUser?.uid;
   if (uid) {
-    await setRealtime(`${firebasePaths.userProfiles}/${uid}/sessionOnline`, false);
-    await setRealtime(`${firebasePaths.userProfiles}/${uid}/sessionLastSeen`, Math.floor(Date.now() / 1000));
+    await updateRealtime(`${firebasePaths.userProfiles}/${uid}`, {
+      sessionOnline: false,
+      sessionLastSeen: Math.floor(Date.now() / 1000),
+    });
   }
   await signOut(auth);
 }
