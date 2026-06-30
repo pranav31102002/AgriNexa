@@ -7,9 +7,13 @@ export type FirebaseDeviceStatus = {
   connection?: string;
   firmware?: string;
   lastSeen?: number | string;
+  heartbeat?: number | string;
+  lastHeartbeat?: number | string;
   timestamp?: number | string;
   updatedAt?: number | string;
   lastSync?: number | string;
+  lastImageTimestamp?: number | string;
+  latestImageTimestamp?: number | string;
 };
 
 export type FirebaseSensorsCurrent = {
@@ -29,6 +33,12 @@ export type FirebaseSensorsCurrent = {
   avgSoil?: number | string;
   avgSoilMoisture?: number | string;
   soilAvg?: number | string;
+  ph?: number | string;
+  pH?: number | string;
+  waterPh?: number | string;
+  waterPH?: number | string;
+  soilPh?: number | string;
+  soilPH?: number | string;
   tankLevel?: number | string;
   tankWaterLevel?: number | string;
   waterLevel?: number | string;

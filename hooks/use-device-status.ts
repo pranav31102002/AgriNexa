@@ -10,8 +10,36 @@ export type DeviceStatusSnapshot = {
   camOnline: boolean;
 };
 
+type CameraActivityStatus = {
+  latestImageTimestamp?: number | string;
+  lastImageTimestamp?: number | string;
+  imageTimestamp?: number | string;
+  latestImageBase64?: string;
+  scanStatus?:
+    | {
+        online?: boolean | number | string;
+        connected?: boolean | number | string;
+        status?: string;
+        connection?: string;
+        timestamp?: number | string;
+        updatedAt?: number | string;
+        lastSeen?: number | string;
+      }
+    | string
+    | null;
+  status?: {
+    cameraOnline?: boolean | number | string;
+    online?: boolean | number | string;
+    connected?: boolean | number | string;
+    timestamp?: number | string;
+    updatedAt?: number | string;
+    lastSeen?: number | string;
+  } | null;
+};
+
 const DEVICE_HEARTBEAT_TIMEOUT_MS = 90_000;
 const SENSOR_FRESH_WINDOW_MS = 5 * 60 * 1000;
+const CAMERA_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
 
 function readTimestamp(...values: unknown[]) {
   for (const value of values) {
@@ -46,20 +74,32 @@ function toMs(ts?: number | string) {
   return value < 1e12 ? value * 1000 : value;
 }
 
-function hasConnectedState(status?: FirebaseDeviceStatus | null) {
-  const connection = String(status?.connection ?? status?.status ?? '').toLowerCase();
+function hasConnectedState(status?: Pick<FirebaseDeviceStatus, 'connection' | 'status'> | null) {
+  const connection = String(status?.connection ?? status?.status ?? '').trim().toLowerCase();
   return connection === 'connected' || connection === 'online' || connection === 'up' || connection === 'ok';
 }
 
 function isOnline(status?: FirebaseDeviceStatus | null) {
   if (!status) return false;
-  const heartbeat = readTimestamp(status.lastSeen, status.timestamp, status.updatedAt, status.lastSync);
+
+  const explicitOnline = readBool(status.online, status.connected);
+  const heartbeat = readTimestamp(
+    status.lastSeen,
+    status.lastHeartbeat,
+    status.heartbeat,
+    status.timestamp,
+    status.updatedAt,
+    status.lastSync,
+    status.latestImageTimestamp,
+    status.lastImageTimestamp
+  );
   const ms = toMs(heartbeat);
   const hasFreshHeartbeat = ms > 0 && Date.now() - ms <= DEVICE_HEARTBEAT_TIMEOUT_MS;
-  if (!hasFreshHeartbeat) return false;
-  if (readBool(status.online, status.connected) === true) return true;
-  if (hasConnectedState(status)) return true;
-  return true;
+
+  if (hasFreshHeartbeat && explicitOnline !== false) return true;
+  if (!heartbeat && explicitOnline === true) return true;
+  if (!heartbeat && hasConnectedState(status)) return true;
+  return false;
 }
 
 function hasFreshSensorActivity(sensors?: FirebaseSensorsCurrent | null) {
@@ -68,23 +108,62 @@ function hasFreshSensorActivity(sensors?: FirebaseSensorsCurrent | null) {
   return ms > 0 && Date.now() - ms <= SENSOR_FRESH_WINDOW_MS;
 }
 
+function hasFreshCameraActivity(camera?: CameraActivityStatus | null) {
+  if (!camera) return false;
+
+  const scanStatus = typeof camera.scanStatus === 'object' && camera.scanStatus ? camera.scanStatus : null;
+  const status = typeof camera.status === 'object' && camera.status ? camera.status : null;
+  const explicitOnline = readBool(
+    scanStatus?.online,
+    scanStatus?.connected,
+    status?.cameraOnline,
+    status?.online,
+    status?.connected
+  );
+  const connectedState =
+    hasConnectedState(scanStatus) ||
+    hasConnectedState(status ? { connection: undefined, status: String(status.online ?? status.connected ?? '') } : null);
+  const timestamp = readTimestamp(
+    camera.latestImageTimestamp,
+    camera.lastImageTimestamp,
+    camera.imageTimestamp,
+    scanStatus?.timestamp,
+    scanStatus?.updatedAt,
+    scanStatus?.lastSeen,
+    status?.timestamp,
+    status?.updatedAt,
+    status?.lastSeen
+  );
+  const ms = toMs(timestamp);
+  const freshTimestamp = ms > 0 && Date.now() - ms <= CAMERA_ACTIVITY_WINDOW_MS;
+  const hasImage = String(camera.latestImageBase64 ?? '').trim().length > 100;
+
+  if (freshTimestamp && explicitOnline !== false) return true;
+  if (explicitOnline === true && (!timestamp || freshTimestamp)) return true;
+  if (connectedState && (!timestamp || freshTimestamp)) return true;
+  return hasImage && freshTimestamp;
+}
+
 export function useDeviceStatus() {
   return useQuery({
     queryKey: ['device-status'],
     queryFn: async (): Promise<DeviceStatusSnapshot> => {
-      const [main, waterController, cam, sensors] = await Promise.all([
+      const [main, waterController, cam, sensors, cameraActivity] = await Promise.all([
         getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusMain),
         getRealtimeOnce<FirebaseDeviceStatus>('SmartKisanSathi/deviceStatus/waterController'),
         getRealtimeOnce<FirebaseDeviceStatus>(firebasePaths.deviceStatusCam),
         getRealtimeOnce<FirebaseSensorsCurrent>(firebasePaths.sensorsCurrent),
+        getRealtimeOnce<CameraActivityStatus>(firebasePaths.pesticide),
       ]);
       const mainStatus = main ?? waterController ?? null;
       const sensorFresh = hasFreshSensorActivity(sensors);
+      const camFresh = hasFreshCameraActivity(cameraActivity);
+
       return {
         main: mainStatus,
         cam: cam ?? null,
         mainOnline: isOnline(mainStatus) || sensorFresh,
-        camOnline: isOnline(cam),
+        camOnline: isOnline(cam) || camFresh,
       };
     },
     refetchInterval: 5000,

@@ -62,6 +62,7 @@ export type HistorySensor = {
   temperature?: number;
   humidity?: number;
   avgSoil?: number;
+  ph?: number | null;
   tankLevel?: number;
   timestamp?: number;
 };
@@ -122,6 +123,52 @@ function groupByDay<T extends { timestamp?: number }>(items: T[], days: number) 
   return buckets;
 }
 
+function dayKey(date: Date) {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function recentDayKeys(days: number) {
+  const today = new Date();
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(today);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(today.getDate() - (days - 1 - index));
+    return dayKey(date);
+  });
+}
+
+function weekKey(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+  return dayKey(start);
+}
+
+function groupByWeek<T extends { timestamp?: number }>(items: T[], days: number) {
+  const now = Date.now();
+  const buckets = new Map<string, T[]>();
+  for (const item of items) {
+    const ts = toMs(item.timestamp);
+    if (!ts || now - ts > days * dayMs) continue;
+    const key = weekKey(new Date(ts));
+    const list = buckets.get(key) ?? [];
+    list.push(item);
+    buckets.set(key, list);
+  }
+  return buckets;
+}
+
+function recentWeekKeys(weeks: number) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  today.setDate(today.getDate() - today.getDay());
+  return Array.from({ length: weeks }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (weeks - 1 - index) * 7);
+    return dayKey(date);
+  });
+}
+
 function dateLabelFromKey(key: string) {
   const [y, m, d] = key.split('-').map((x) => Number(x));
   const date = new Date(y, m, d);
@@ -145,6 +192,7 @@ function calcHealthFromSensor(sensor: HistorySensor) {
     soilMoisture1: 0,
     soilMoisture2: 0,
     avgSoilMoisture: Number(sensor.avgSoil ?? 0),
+    ph: sensor.ph ?? null,
     tankWaterLevel: Number(sensor.tankLevel ?? 0),
     waterPumpStatus: false,
     pesticidePumpStatus: false,
@@ -207,7 +255,7 @@ export function buildWeeklyReport(input: ReportCalculatorInput, recommendation: 
   const pesticideByDay = groupByDay(input.pesticideHistory, 7);
   const alertWeek = input.alerts.filter((s) => Date.now() - toMs(s.timestamp) <= 7 * dayMs);
 
-  const keys = Array.from(sensorsByDay.keys()).sort((a, b) => a.localeCompare(b));
+  const keys = recentDayKeys(7);
   const soilTrend = keys.map((key) => {
     const list = sensorsByDay.get(key) ?? [];
     return { value: avg(list.map((s) => Number(s.avgSoil ?? 0))), label: dateLabelFromKey(key) };
@@ -215,8 +263,10 @@ export function buildWeeklyReport(input: ReportCalculatorInput, recommendation: 
 
   const waterUsage = keys.map((key) => {
     const list = irrigationByDay.get(key) ?? [];
-    const minutes = Math.round(list.reduce((sum, i) => sum + Number(i.lastRunDurationSec ?? 0), 0) / 60);
-    return { value: minutes, label: dateLabelFromKey(key) };
+    const runtimeSec = list.reduce((sum, i) => sum + Number(i.lastRunDurationSec ?? 0), 0);
+    const pumpCycles = list.filter((i) => Boolean(i.pumpWater)).length;
+    const value = runtimeSec > 0 ? Math.round(runtimeSec / 60) : pumpCycles;
+    return { value, label: dateLabelFromKey(key) };
   });
 
   const diseaseScansByDay = keys.map((key) => ({
@@ -229,8 +279,9 @@ export function buildWeeklyReport(input: ReportCalculatorInput, recommendation: 
     label: dateLabelFromKey(key),
   }));
 
-  const totalWaterRouting = input.irrigation.filter((i) => Boolean(i.pumpWater)).length;
-  const totalPesticideRouting = input.pesticideHistory.filter((p) => Boolean(p.approved)).length;
+  const weekStart = Date.now() - 7 * dayMs;
+  const totalWaterRouting = input.irrigation.filter((i) => Boolean(i.pumpWater) && toMs(i.timestamp) >= weekStart).length;
+  const totalPesticideRouting = input.pesticideHistory.filter((p) => Boolean(p.approved) && toMs(p.timestamp) >= weekStart).length;
   const totalFlushCycles = totalPesticideRouting;
   const routeEfficiencyPercent =
     totalWaterRouting + totalPesticideRouting > 0
@@ -275,8 +326,8 @@ export function buildMonthlyReport(input: ReportCalculatorInput, insight: string
   const alerts = input.alerts.filter((s) => now - toMs(s.timestamp) <= days * dayMs);
   const pesticide = input.pesticideHistory.filter((s) => now - toMs(s.timestamp) <= days * dayMs);
 
-  const weeklyBuckets = groupByDay(sensors, 30);
-  const weekKeys = Array.from(weeklyBuckets.keys()).sort((a, b) => a.localeCompare(b)).slice(-4);
+  const weeklyBuckets = groupByWeek(sensors, 30);
+  const weekKeys = recentWeekKeys(4);
   const soilTrend = weekKeys.map((key, idx) => {
     const list = weeklyBuckets.get(key) ?? [];
     return { value: avg(list.map((s) => Number(s.avgSoil ?? 0))), label: `W${idx + 1}` };

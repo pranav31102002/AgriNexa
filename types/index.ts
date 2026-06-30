@@ -26,6 +26,7 @@ export interface SensorCurrent {
   soilMoisture1: number;
   soilMoisture2: number;
   avgSoilMoisture: number;
+  ph?: number | null;
   tankWaterLevel: number;
   waterPumpStatus: boolean;
   pesticidePumpStatus: boolean;

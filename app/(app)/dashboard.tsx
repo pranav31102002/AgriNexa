@@ -27,6 +27,20 @@ function ProgressRing({ value }: { value: number }) {
   );
 }
 
+function getPhStatus(ph?: number | null) {
+  const value = Number(ph);
+  if (!Number.isFinite(value) || value <= 0) {
+    return { label: 'Unavailable', tone: 'info' as const, hint: 'Connect water pH sensor to show irrigation water quality.' };
+  }
+  if (value >= 6.5 && value <= 8.5) {
+    return { label: 'Optimal', tone: 'ok' as const, hint: 'Water pH is suitable for irrigation.' };
+  }
+  if (value < 6.5) {
+    return { label: 'Acidic', tone: value < 5.5 ? 'error' as const : 'warn' as const, hint: 'Water is acidic. Check source water before irrigation.' };
+  }
+  return { label: 'Alkaline', tone: value > 9 ? 'error' as const : 'warn' as const, hint: 'Water is alkaline. Nutrient availability may be affected.' };
+}
+
 export default function DashboardScreen() {
   const { t } = useTranslation();
   const theme = useAppTheme();
@@ -43,6 +57,7 @@ export default function DashboardScreen() {
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const avgSoil = data?.avgSoilMoisture ?? 0;
+  const phStatus = getPhStatus(data?.ph);
   const diseaseRisk = useMemo(() => {
     if (!cachedPrediction || cachedPrediction.disease === 'Healthy') return 0;
     return Math.max(0, Math.min(100, cachedPrediction.confidence));
@@ -277,6 +292,19 @@ export default function DashboardScreen() {
           <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>{data?.humidity ?? 0}%</Text>
         </GlassCard>
       </View>
+
+      <GlassCard>
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-1">
+            <Text className="text-xs uppercase tracking-wider text-slate-500" style={muted}>Water pH</Text>
+            <Text className="mt-1 text-3xl font-black text-slate-800" style={txt}>
+              {Number.isFinite(Number(data?.ph)) && Number(data?.ph) > 0 ? Number(data?.ph).toFixed(2) : '--'}
+            </Text>
+            <Text className="mt-1 text-xs text-slate-500" style={muted}>{phStatus.hint}</Text>
+          </View>
+          <StatusBadge text={phStatus.label} tone={phStatus.tone} />
+        </View>
+      </GlassCard>
 
       <GlassCard>
         <View className="flex-row items-center justify-between">

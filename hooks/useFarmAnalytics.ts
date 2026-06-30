@@ -1,5 +1,13 @@
 import { firebasePaths } from '@/constants/firebase-paths';
 import { getRealtimeOnce } from '@/services/firebase';
+import {
+  buildWeeklyReport,
+  HistoryAlert,
+  HistoryDisease,
+  HistoryIrrigation,
+  HistoryPesticide,
+  HistorySensor,
+} from '@/services/report/report-calculator';
 import { AnalyticsSummary, HeatmapRow } from '@/types';
 import { useQuery } from '@tanstack/react-query';
 
@@ -19,6 +27,17 @@ type WeeklyReport = {
 
 type SensorCurrent = {
   avgSoil?: number;
+  avgSoilMoisture?: number;
+  soilAvg?: number;
+  soil1?: number;
+  soil2?: number;
+  temperature?: number;
+  humidity?: number;
+  tankLevel?: number;
+  timestamp?: number;
+  ts?: number;
+  updatedAt?: number;
+  lastSync?: number;
 };
 
 type ActionLog = {
@@ -29,6 +48,44 @@ type ActionLog = {
 function toMs(ts?: number) {
   if (!ts) return 0;
   return ts < 1e12 ? ts * 1000 : ts;
+}
+
+function toSeconds(ts?: number) {
+  if (!ts) return Math.floor(Date.now() / 1000);
+  return ts < 1e12 ? ts : Math.floor(ts / 1000);
+}
+
+function readNumber(...values: unknown[]) {
+  for (const value of values) {
+    const next = Number(value);
+    if (Number.isFinite(next)) return next;
+  }
+  return undefined;
+}
+
+function currentSensorToHistory(sensor: SensorCurrent | null): HistorySensor | null {
+  if (!sensor) return null;
+  const soil1 = readNumber(sensor.soil1);
+  const soil2 = readNumber(sensor.soil2);
+  return {
+    temperature: readNumber(sensor.temperature) ?? 0,
+    humidity: readNumber(sensor.humidity) ?? 0,
+    avgSoil: readNumber(
+      sensor.avgSoil,
+      sensor.avgSoilMoisture,
+      sensor.soilAvg,
+      soil1 != null && soil2 != null ? (soil1 + soil2) / 2 : undefined
+    ) ?? 0,
+    tankLevel: readNumber(sensor.tankLevel) ?? 0,
+    timestamp: toSeconds(sensor.timestamp ?? sensor.ts ?? sensor.updatedAt ?? sensor.lastSync),
+  };
+}
+
+function appendCurrentSensor(historySensors: HistorySensor[], currentSensor: HistorySensor | null) {
+  if (!currentSensor) return historySensors;
+  const currentTs = toSeconds(currentSensor.timestamp);
+  const alreadyLogged = historySensors.some((item) => Math.abs(toSeconds(item.timestamp) - currentTs) < 60);
+  return alreadyLogged ? historySensors : [...historySensors, currentSensor];
 }
 
 function trendDelta(values: number[]) {
@@ -93,18 +150,43 @@ export function useFarmAnalytics() {
         getRealtimeOnce<Record<string, ActionLog>>(firebasePaths.logsActions),
       ]);
 
-      const soilTrend = (weeklyRaw?.soilTrend ?? []).map((item) => Number(item.value ?? 0));
-      const waterUsage = (weeklyRaw?.waterUsage ?? []).map((item) => Number(item.value ?? 0));
-      const sprayByDay = (weeklyRaw?.sprayApprovalsByDay ?? []).map((item) => Number(item.value ?? 0));
+      const [historySensorsRaw, irrigationRaw, diseaseRaw, alertsRaw, pesticideRaw] = await Promise.all([
+        getRealtimeOnce<Record<string, HistorySensor>>(firebasePaths.historySensors),
+        getRealtimeOnce<Record<string, HistoryIrrigation>>(firebasePaths.historyIrrigation),
+        getRealtimeOnce<Record<string, HistoryDisease>>(firebasePaths.historyDisease),
+        getRealtimeOnce<Record<string, HistoryAlert>>(firebasePaths.historyAlerts),
+        getRealtimeOnce<Record<string, HistoryPesticide>>(firebasePaths.pesticideHistory),
+      ]);
+
+      const generatedWeekly = buildWeeklyReport(
+        {
+          sensors: appendCurrentSensor(Object.values(historySensorsRaw ?? {}), currentSensorToHistory(sensorsRaw)),
+          irrigation: Object.values(irrigationRaw ?? {}),
+          disease: Object.values(diseaseRaw ?? {}),
+          alerts: Object.values(alertsRaw ?? {}),
+          pesticideHistory: Object.values(pesticideRaw ?? {}),
+        },
+        ''
+      );
+      const weekly = generatedWeekly.soilTrend.some((item) => Number(item.value) > 0) ||
+        generatedWeekly.waterUsage.some((item) => Number(item.value) > 0) ||
+        generatedWeekly.totalWaterRouting > 0 ||
+        generatedWeekly.totalPesticideRouting > 0
+        ? generatedWeekly
+        : weeklyRaw;
+
+      const soilTrend = (weekly?.soilTrend ?? []).map((item) => Number(item.value ?? 0));
+      const waterUsage = (weekly?.waterUsage ?? []).map((item) => Number(item.value ?? 0));
+      const sprayByDay = (weekly?.sprayApprovalsByDay ?? []).map((item) => Number(item.value ?? 0));
 
       const avgSoilMoisture =
         lastValue(soilTrend) ||
         lastValue(todayRaw?.avgSoilTrend ?? []) ||
         Number(sensorsRaw?.avgSoil ?? 0);
 
-      const waterRouteCycles = Number(weeklyRaw?.totalWaterRouting ?? 0);
-      const sprayRouteCycles = Number(weeklyRaw?.totalPesticideRouting ?? 0);
-      const routeEfficiency = Number(weeklyRaw?.routeEfficiencyPercent ?? 0);
+      const waterRouteCycles = Number(weekly?.totalWaterRouting ?? 0);
+      const sprayRouteCycles = Number(weekly?.totalPesticideRouting ?? 0);
+      const routeEfficiency = Number(weekly?.routeEfficiencyPercent ?? 0);
 
       const deltaSoil = trendDelta(soilTrend);
       const deltaWater = trendDelta(waterUsage);

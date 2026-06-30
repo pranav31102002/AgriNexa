@@ -12,7 +12,7 @@ import { useFarmRealtime } from '@/hooks/use-farm-realtime';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useWeather } from '@/hooks/useWeather';
 import { logUserAction } from '@/services/audit-log.service';
-import { getRealtimeOnce, setRealtime } from '@/services/firebase';
+import { getRealtimeOnce, setRealtime, updateRealtime } from '@/services/firebase';
 import { logIrrigationHistory } from '@/services/history.service';
 import { speakIrrigationSummary as speakIrrigationSummaryTts, stopSpeech } from '@/services/speech.service';
 import { useAppStore } from '@/store/use-app-store';
@@ -23,6 +23,10 @@ type ControlsJson = {
   autoMode?: boolean;
   moistureThreshold?: number;
   pumpWater?: boolean;
+  waterPump?: boolean;
+  waterPumpStatus?: boolean;
+  routeMode?: string;
+  commandUpdatedAt?: number;
   notifications?: boolean;
   theme?: string;
   language?: string;
@@ -61,7 +65,7 @@ export default function IrrigationScreen() {
         language: dbControl?.language ?? 'EN',
       };
     },
-    refetchInterval: 5000,
+    refetchInterval: 1000,
   });
 
   const updateMutation = useMutation({
@@ -75,6 +79,8 @@ export default function IrrigationScreen() {
         language: 'EN',
       };
       const merged = { ...current, ...payload };
+      const commandUpdatedAt = Math.floor(Date.now() / 1000);
+      const routeMode = merged.pumpWater ? 'WATER' : 'IDLE';
 
       setLocalControl({
         autoMode: merged.autoMode,
@@ -82,18 +88,33 @@ export default function IrrigationScreen() {
         waterPump: merged.pumpWater,
       });
 
-      await setRealtime(firebasePaths.controls, merged);
+      await updateRealtime(firebasePaths.controls, {
+        ...merged,
+        waterPump: merged.pumpWater,
+        waterPumpStatus: merged.pumpWater,
+        routeMode,
+        commandUpdatedAt,
+      });
 
       const avgSoilNow = data?.avgSoilMoisture ?? 0;
+      const manualPumpCommand = merged.autoMode ? avgSoilNow < merged.moistureThreshold : merged.pumpWater;
       await setRealtime(firebasePaths.automationWater, {
         recommended: avgSoilNow < merged.moistureThreshold,
-        pumpON: avgSoilNow < merged.moistureThreshold,
-        reason: avgSoilNow < merged.moistureThreshold ? 'AVG_SOIL_BELOW_THRESHOLD' : 'AVG_SOIL_ABOVE_THRESHOLD',
+        pumpON: manualPumpCommand,
+        pumpWater: manualPumpCommand,
+        routeMode: manualPumpCommand ? 'WATER' : 'IDLE',
+        reason: merged.autoMode
+          ? avgSoilNow < merged.moistureThreshold
+            ? 'AVG_SOIL_BELOW_THRESHOLD'
+            : 'AVG_SOIL_ABOVE_THRESHOLD'
+          : manualPumpCommand
+            ? 'MANUAL_PUMP_ON'
+            : 'MANUAL_PUMP_OFF',
         confidence: 0.98,
         modelVersion: 'RULE_V2',
         waterSavingPercent: Math.max(0, Math.round((merged.moistureThreshold - avgSoilNow) * -1.6 + 32)),
-        lastRunDurationSec: avgSoilNow < merged.moistureThreshold ? 18 : 0,
-        timestamp: Math.floor(Date.now() / 1000),
+        lastRunDurationSec: manualPumpCommand ? 18 : 0,
+        timestamp: commandUpdatedAt,
       });
 
       await logIrrigationHistory({
@@ -105,8 +126,30 @@ export default function IrrigationScreen() {
 
       return { current, merged };
     },
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: ['controls'] });
+      const current = controlsQuery.data ?? {
+        autoMode: true,
+        moistureThreshold: 45,
+        pumpWater: false,
+        notifications: true,
+        theme: 'system',
+        language: 'EN',
+      };
+      const merged = { ...current, ...payload };
+      queryClient.setQueryData(['controls'], merged);
+      setLocalControl({
+        autoMode: merged.autoMode,
+        moistureThreshold: merged.moistureThreshold,
+        waterPump: merged.pumpWater,
+      });
+      return { previous: current };
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['controls'] });
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) queryClient.setQueryData(['controls'], context.previous);
     },
   });
 
@@ -189,16 +232,20 @@ export default function IrrigationScreen() {
 
   const onManualPumpToggle = async () => {
     const oldValue = pumpWater;
-    updateMutation.mutate({ pumpWater: !pumpWater });
+    const nextPumpWater = !pumpWater;
+    updateMutation.mutate({
+      autoMode: false,
+      pumpWater: nextPumpWater,
+    });
     await logUserAction({
       actionType: 'MANUAL_PUMP_TOGGLE',
       oldValue,
-      newValue: !pumpWater,
+      newValue: nextPumpWater,
     });
     setFeedback({
-      title: !pumpWater ? t('manualIrrigationStarted') : t('manualIrrigationStopped'),
-      subtitle: !pumpWater ? t('waterLineActiveNow') : t('waterLineStopped'),
-      variant: !pumpWater ? 'success' : 'warning',
+      title: nextPumpWater ? t('manualIrrigationStarted') : t('manualIrrigationStopped'),
+      subtitle: nextPumpWater ? t('waterLineActiveNow') : t('waterLineStopped'),
+      variant: nextPumpWater ? 'success' : 'warning',
     });
   };
 
@@ -311,7 +358,9 @@ export default function IrrigationScreen() {
             />
           </View>
           <Pressable
-            className={`items-center rounded-2xl px-4 py-4 ${pumpWater ? 'bg-red-600' : 'bg-emerald-600'}`}
+            className={`items-center rounded-2xl px-4 py-4 ${
+              autoMode ? 'bg-slate-400' : pumpWater ? 'bg-red-600' : 'bg-emerald-600'
+            }`}
             disabled={autoMode}
             onPress={onManualPumpToggle}>
             <Text className="text-lg font-black text-white">
@@ -336,3 +385,4 @@ export default function IrrigationScreen() {
     </ScreenContainer>
   );
 }
+

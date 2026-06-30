@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "AgriNexa",
     "slug": "AgriNexa",
@@ -19,7 +19,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": false,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.pbhosale_31102203.AgriNexa"
     },
     "web": {
       "output": "static",
@@ -29,7 +33,7 @@
       "expo-router",
       "expo-localization",
       "expo-image-picker",
-            "expo-notifications",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {
@@ -46,6 +50,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9c2a7892-3a8d-4646-9e05-7c2b80496b54"
+      }
     }
   }
 }

@@ -7,6 +7,7 @@ type SensorHistoryItem = {
   temperature: number;
   humidity: number;
   avgSoil: number;
+  ph?: number | null;
   tankLevel: number;
   timestamp: number;
 };
@@ -33,6 +34,7 @@ export async function logSensorSnapshotIfDue(snapshot: SensorCurrent): Promise<v
     temperature: Number(snapshot.temperature ?? 0),
     humidity: Number(snapshot.humidity ?? 0),
     avgSoil: Number(snapshot.avgSoilMoisture ?? 0),
+    ph: snapshot.ph ?? null,
     tankLevel: Number(snapshot.tankWaterLevel ?? 0),
     timestamp: Math.floor(now / 1000),
   };
